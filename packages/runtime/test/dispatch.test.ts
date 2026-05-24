@@ -153,17 +153,20 @@ describe('global dispatch', () => {
 			input: { text: 'one' }, acceptedAt: '2026-05-21T00:00:00.000Z',
 		};
 		let contextRunId: string | undefined = 'unread';
+		let contextDispatchId: string | undefined;
 		const processor = createAgentDispatchProcessor({
 			agents: { moderator: createAgent(() => ({ model: false })) },
-			createContext: (id, runId, payload, request, initialEventIndex) => {
+			createContext: (id, runId, payload, request, initialEventIndex, dispatchId) => {
 				contextRunId = runId;
-				const ctx = createTestContext(id, runId, payload, request, initialEventIndex);
+				contextDispatchId = dispatchId;
+				const ctx = createTestContext(id, runId, payload, request, initialEventIndex, dispatchId);
 				ctx.initializeCreatedAgent = async () => fakeDispatchHarness([], []);
 				return ctx;
 			},
 		});
 		await processor.process(input);
 		expect(contextRunId).toBeUndefined();
+		expect(contextDispatchId).toBe('dispatch-process');
 		expect(await runStore.getRun(input.dispatchId)).toBeNull();
 		expect(await runStore.getEvents(input.dispatchId)).toEqual([]);
 	});
@@ -254,8 +257,8 @@ function fakeDispatchHarness(sessions: string[], processed: DispatchInput[]): Fl
 	};
 }
 
-function createTestContext(id: string, runId: string | undefined, payload: unknown, req: Request, initialEventIndex?: number) {
-	return createFlueContext({ id, runId, payload, env: {}, req, initialEventIndex, agentConfig: testAgentConfig(), createDefaultEnv: async () => fakeEnv(), defaultStore: new InMemorySessionStore() });
+function createTestContext(id: string, runId: string | undefined, payload: unknown, req: Request, initialEventIndex?: number, dispatchId?: string) {
+	return createFlueContext({ id, runId, dispatchId, payload, env: {}, req, initialEventIndex, agentConfig: testAgentConfig(), createDefaultEnv: async () => fakeEnv(), defaultStore: new InMemorySessionStore() });
 }
 
 function testAgentConfig(): AgentConfig {

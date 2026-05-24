@@ -42,6 +42,8 @@ const RunPointerSchema = v.object({
 
 const EventBaseSchema = {
 	runId: v.optional(v.string()),
+	instanceId: v.optional(v.string()),
+	dispatchId: v.optional(v.string()),
 	eventIndex: v.optional(v.number()),
 	timestamp: v.optional(v.string()),
 	session: v.optional(v.string()),
@@ -226,8 +228,6 @@ export const WorkflowAdmissionResponseSchema = v.object({
 	status: v.literal('accepted'),
 	runId: v.string(),
 });
-
-export const AgentInvocationBodySchema = v.looseObject({});
 
 const integerString = (message: string) => v.pipe(v.string(), v.regex(/^\d+$/, message));
 const eventTypesPattern = new RegExp(

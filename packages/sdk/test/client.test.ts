@@ -14,11 +14,61 @@ describe('createFlueClient', () => {
 		});
 
 		await expect(
-			client.agents.invoke('hello', 'inst-1', { mode: 'sync', payload: { name: 'Ada' } }),
+			client.agents.invoke('hello', 'inst-1', { mode: 'sync', payload: { message: 'Hello', session: 'chat' } }),
 		).resolves.toEqual({ result: { ok: true } });
 		expect(seen).toHaveLength(1);
 		expect(new URL(seen[0]?.url ?? '').pathname).toBe('/agents/hello/inst-1');
 		expect(seen[0]?.method).toBe('POST');
+		expect(await seen[0]?.json()).toEqual({ message: 'Hello', session: 'chat' });
+	});
+
+	it('streams attached agent events without workflow identity', async () => {
+		const client = createFlueClient({
+			baseUrl: 'https://flue.test',
+			fetch: async () => new Response(sse('event: agent_start\ndata: {"type":"agent_start","instanceId":"inst-1","session":"chat"}\n\nevent: idle\ndata: {"type":"idle","instanceId":"inst-1","session":"chat"}\n\n'), {
+				headers: { 'content-type': 'text/event-stream' },
+			}),
+		});
+
+		const events = [];
+		for await (const event of client.agents.invoke('hello', 'inst-1', { mode: 'stream', payload: { message: 'Hello', session: 'chat' } })) {
+			events.push(event);
+		}
+		expect(events).toEqual([{ type: 'agent_start', instanceId: 'inst-1', session: 'chat' }, { type: 'idle', instanceId: 'inst-1', session: 'chat' }]);
+	});
+
+	it('rejects invalid attached agent stream events and stream errors', async () => {
+		const invalid = createFlueClient({
+			baseUrl: 'https://flue.test',
+			fetch: async () => new Response(sse('event: run_start\ndata: {"type":"run_start","runId":"run_stale"}\n\n'), {
+				headers: { 'content-type': 'text/event-stream' },
+			}),
+		});
+		const invalidEvents = invalid.agents.invoke('hello', 'inst-1', { mode: 'stream', payload: { message: 'Hello' } });
+		await expect((async () => { for await (const _event of invalidEvents) return; })()).rejects.toThrow('invalid event');
+
+		for (const data of [
+			'{"type":"agent_start","instanceId":"inst-2"}',
+			'{"type":"not_real","instanceId":"inst-1"}',
+		]) {
+			const mismatch = createFlueClient({
+				baseUrl: 'https://flue.test',
+				fetch: async () => new Response(sse(`event: agent_start\ndata: ${data}\n\n`), {
+					headers: { 'content-type': 'text/event-stream' },
+				}),
+			});
+			const events = mismatch.agents.invoke('hello', 'inst-1', { mode: 'stream', payload: { message: 'Hello' } });
+			await expect((async () => { for await (const _event of events) return; })()).rejects.toThrow('invalid event');
+		}
+
+		const failed = createFlueClient({
+			baseUrl: 'https://flue.test',
+			fetch: async () => new Response(sse('event: error\ndata: {"type":"error","instanceId":"inst-1","error":{"type":"internal_error","message":"agent failed","details":"failed"}}\n\n'), {
+				headers: { 'content-type': 'text/event-stream' },
+			}),
+		});
+		const failedEvents = failed.agents.invoke('hello', 'inst-1', { mode: 'stream', payload: { message: 'Hello' } });
+		await expect((async () => { for await (const _event of failedEvents) return; })()).rejects.toThrow('agent failed');
 	});
 
 	it('builds admin list queries', async () => {

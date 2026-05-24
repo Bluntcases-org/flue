@@ -211,11 +211,13 @@ const dispatchQueue = new InMemoryDispatchQueue(createAgentDispatchProcessor({
   createContext: createContextForRequest,
 }));
 
-function createContextForRequest(id, runId, payload, req) {
+function createContextForRequest(id, runId, payload, req, initialEventIndex, dispatchId) {
   return createFlueContext({
     id,
     runId,
+    dispatchId,
     payload,
+    initialEventIndex,
     env: process.env,
     req,
     agentConfig: {

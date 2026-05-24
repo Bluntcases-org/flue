@@ -30,6 +30,11 @@ export interface AgentManifestEntry {
 	created: boolean;
 }
 
+export interface DirectAgentPayload {
+	message: string;
+	session?: string;
+}
+
 export interface ListResponse<T> {
 	items: T[];
 	nextCursor?: string;
@@ -105,7 +110,7 @@ export type AgentWebSocketServerMessage =
 			version: 1;
 			type: 'event';
 			requestId: string;
-			event: FlueEvent;
+			event: AttachedAgentEvent;
 	  }
 	| {
 			version: 1;
@@ -196,6 +201,8 @@ export type FlueEvent = (
 	| { type: 'run_end'; runId: string; result?: unknown; isError: boolean; error?: unknown; durationMs: number }
 ) & {
 	runId?: string;
+	instanceId?: string;
+	dispatchId?: string;
 	eventIndex?: number;
 	timestamp?: string;
 	session?: string;
@@ -204,3 +211,14 @@ export type FlueEvent = (
 	harness?: string;
 	operationId?: string;
 };
+
+export type AttachedAgentEvent = Exclude<FlueEvent, { type: 'run_start' } | { type: 'run_end' }> & {
+	runId?: never;
+	instanceId: string;
+};
+
+export interface AttachedAgentStreamError {
+	type: 'error';
+	instanceId: string;
+	error: FluePublicError;
+}

@@ -23,6 +23,9 @@ export type {
 export type {
 	AgentWebSocketClientMessage,
 	AgentWebSocketServerMessage,
+	AttachedAgentEvent,
+	AttachedAgentStreamError,
+	DirectAgentPayload,
 	FlueEvent,
 	FluePublicError,
 	RunOwner,

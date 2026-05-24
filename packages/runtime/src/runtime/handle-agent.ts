@@ -1,15 +1,15 @@
 /** Shared per-agent HTTP dispatcher for the Node and Cloudflare targets. */
 
 import type { FlueContextInternal } from '../client.ts';
-import { InvalidRequestError, parseJsonBody, RunEventTooLargeError, toHttpResponse } from '../errors.ts';
-import type { CreatedAgent, DirectAgentPayload, DispatchReceipt, FlueEvent, FlueEventCallback } from '../types.ts';
+import { InvalidRequestError, parseJsonBody, RunEventTooLargeError, toHttpResponse, toPublicError } from '../errors.ts';
+import type { AttachedAgentEvent, AttachedAgentEventCallback, CreatedAgent, DirectAgentPayload, DispatchReceipt, FlueEvent, FlueEventCallback } from '../types.ts';
 import type { DispatchInput, DispatchProcessor } from './dispatch-queue.ts';
 import { generateWorkflowRunId } from './ids.ts';
 import type { RunOwner, RunRegistry } from './run-registry.ts';
 import type { RunStore } from './run-store.ts';
 import type { RunSubscriberRegistry } from './run-subscribers.ts';
 
-/** Direct agent handler signature used by HTTP sync/webhook/SSE modes. */
+/** Direct agent handler signature used by attached HTTP and WebSocket prompts. */
 export type AgentHandler = (ctx: FlueContextInternal) => unknown | Promise<unknown>;
 export type CreatedAgentHandler = CreatedAgent;
 export type WorkflowHandler = (ctx: FlueContextInternal) => unknown | Promise<unknown>;
@@ -35,7 +35,7 @@ export function createAgentDispatchProcessor(options: {
 		async process(input) {
 			const agent = options.agents[input.targetAgent];
 			if (!agent) throw new Error(`[flue] dispatch target agent "${input.targetAgent}" has no created agent.`);
-			const ctx = options.createContext(input.id, undefined, input, dispatchRequest());
+			const ctx = options.createContext(input.id, undefined, input, dispatchRequest(), undefined, input.dispatchId);
 			await createDispatchAgentHandler(agent, input)(ctx);
 		},
 	};
@@ -134,6 +134,7 @@ export type CreateContextFn = (
 	payload: unknown,
 	request: Request,
 	initialEventIndex?: number,
+	dispatchId?: string,
 ) => FlueContextInternal;
 
 /**
@@ -182,35 +183,25 @@ export interface HandleWorkflowOptions {
 }
 
 /**
- * Dispatch a single `/agents/:name/:id` request. The mode is chosen by
- * inspecting headers:
+ * Handle one attached `/agents/:name/:id` prompt interaction.
  *
- *   - `X-Webhook: true` → fire-and-forget. Returns 202 immediately; the
- *     handler runs in the background. Errors are logged server-side.
- *   - `Accept: text/event-stream` (and not webhook) → SSE streaming. Returns
- *     200 + text/event-stream. Events come from the FlueContext's event
- *     callback; final result is appended as `event: result`. Per-event errors
- *     surface as `event: error` envelopes.
- *   - Otherwise → sync. Returns 200 + JSON `{ result }`.
+ * `Accept: text/event-stream` returns attached event streaming; otherwise the
+ * response is synchronous JSON `{ result }`. Former `X-Webhook: true` agent
+ * requests are rejected because asynchronous delivery uses `dispatch(...)`.
  *
- * Errors thrown BEFORE streaming starts (body parse, agent lookup) bubble
- * out as a `Response` via {@link toHttpResponse} — headers haven't been sent
- * yet, so a regular HTTP error is still possible. Errors thrown AFTER the
- * 200 + text/event-stream headers are on the wire (i.e. inside the agent
- * handler) get framed as in-stream `error` events instead.
- *
- * Caller is responsible for routing — this function assumes the request has
- * already been validated as a POST against a registered agent.
+ * Errors thrown before streaming starts are returned as regular HTTP error
+ * responses; errors thrown after SSE begins are framed as stream errors.
  */
 export async function handleAgentRequest(opts: HandleAgentOptions): Promise<Response> {
 	const { request, agentName, id, handler, createContext } = opts;
 	const runHandler = opts.runHandler ?? defaultRunHandler;
 
 	try {
-		const payload = await parseJsonBody(request);
+		const rawPayload = await parseJsonBody(request);
 		if (request.headers.get('x-webhook') === 'true') {
 			throw new InvalidRequestError({ reason: 'Direct agent prompts are attached interactions. Use dispatch(...) for asynchronous delivery.' });
 		}
+		const payload = parseDirectAgentPayload(rawPayload);
 		const directOptions: DirectAttachedOptions = {
 			agentName,
 			id,
@@ -235,9 +226,8 @@ export async function handleWorkflowRequest(opts: HandleWorkflowOptions): Promis
 	const runHandler = opts.runHandler ?? defaultRunHandler;
 	const runId = opts.runId ?? generateWorkflowRunId(workflowName);
 	// Workflows have one instance per run, so the workflow instance id and
-	// the run id are the same value. The owner shape mirrors agents so
-	// per-workflow Durable Object classes route by `instanceId` like agent
-	// DOs do.
+	// the run id are the same value. Per-workflow Durable Object classes route
+	// their finite invocation by that shared `instanceId` / `runId` identity.
 	const instanceId = runId;
 
 	try {
@@ -344,11 +334,11 @@ export interface DirectAttachedOptions {
 	agentName: string;
 	id: string;
 	handler: AgentHandler;
-	payload: unknown;
+	payload: DirectAgentPayload;
 	request: Request;
 	createContext: CreateContextFn;
 	runHandler?: RunHandlerFn;
-	onEvent?: FlueEventCallback;
+	onEvent?: AttachedAgentEventCallback;
 	emitIdleOnComplete?: boolean;
 }
 
@@ -641,7 +631,7 @@ function runDirectSseMode(opts: DirectAttachedOptions): Response {
 		try {
 			await invokeDirectAttached({ ...opts, onEvent: (event) => writeSSE(event, event.type), emitIdleOnComplete: true });
 		} catch (error) {
-			await writeSSE({ message: error instanceof Error ? error.message : String(error) }, 'error');
+			await writeSSE({ type: 'error', instanceId: opts.id, error: toPublicError(error) }, 'error');
 		} finally {
 			clearInterval(heartbeat);
 			closed = true;
@@ -670,8 +660,11 @@ export async function invokeDirectAttached(opts: DirectAttachedOptions): Promise
 		let didEmitIdle = false;
 		if (opts.onEvent || opts.emitIdleOnComplete) {
 			ctx.setEventCallback((event) => {
+				if (event.type === 'run_start' || event.type === 'run_end') return;
 				if (event.type === 'idle') didEmitIdle = true;
-				return opts.onEvent?.(event);
+				const attachedEvent = { ...event, instanceId: opts.id };
+				delete attachedEvent.runId;
+				return opts.onEvent?.(attachedEvent as AttachedAgentEvent);
 			});
 		}
 		try {

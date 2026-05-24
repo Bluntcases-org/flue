@@ -454,7 +454,7 @@ function createDOStore(sql) {
   };
 }
 
-function createContextForRequest(id, runId, payload, doInstance, req, initialEventIndex) {
+function createContextForRequest(id, runId, payload, doInstance, req, initialEventIndex, dispatchId) {
   // Use DO SQLite storage by default, fall back to in-memory
   const defaultStore = doInstance?.ctx?.storage?.sql
     ? createDOStore(doInstance.ctx.storage.sql)
@@ -463,6 +463,7 @@ function createContextForRequest(id, runId, payload, doInstance, req, initialEve
   return createFlueContext({
     id,
     runId,
+    dispatchId,
     payload,
     env: doInstance?.env ?? {},
     req,
@@ -491,8 +492,8 @@ function createRunRegistryForRequest(reqEnv) {
  * Durable Object binding name (PascalCase). This MUST match the
  * build-time \`agentClassName\` helper byte-for-byte — its source is
  * inlined directly below via .toString() so the two cannot drift.
- * Used by the main worker to resolve a runId-derived target agent
- * back into a DO stub without keeping its own (name -> class) map.
+ * Used by the main worker to resolve a named agent target back into a
+ * DO stub without keeping its own (name -> class) map.
  */
 const agentBindingNameFromAgentName = ${agentClassName.toString().replace(/agentClassName/g, 'agentBindingNameFromAgentName')};
 
@@ -623,14 +624,14 @@ async function processManagedAgentDispatch(input, doInstance, agentName, fiberId
   if (!agent) throw new Error('[flue] Dispatch target unavailable during durable processing.');
   await persistAgentDispatchAdmission({
     input,
-    createContext: (id_, runId, payload, req, initialEventIndex) => createContextForRequest(id_, runId, payload, doInstance, req, initialEventIndex),
+    createContext: (id_, runId, payload, req, initialEventIndex, dispatchId) => createContextForRequest(id_, runId, payload, doInstance, req, initialEventIndex, dispatchId),
   });
   const target = { agentName, instanceId: doInstance.name };
   await waitForEarlierManagedDispatch(doInstance, input, fiberId);
   const releaseSessionLock = await reserveDispatchAgentSession(target, input);
   const request = new Request('https://flue.invalid' + INTERNAL_DISPATCH_PATH, { method: 'POST' });
   try {
-    const ctx = createContextForRequest(doInstance.name, undefined, input, doInstance, request);
+    const ctx = createContextForRequest(doInstance.name, undefined, input, doInstance, request, undefined, input.dispatchId);
     await runWithInstanceContext(doInstance, agentRuntimeIdentity(agentName), () => createDispatchAgentHandler(agent, input)(ctx));
   } finally {
     releaseSessionLock?.();
@@ -676,7 +677,7 @@ async function dispatchWorkflow(request, doInstance, workflowName) {
       runSubscribers,
       runRegistry: createRunRegistryForRequest(doInstance.env),
       restartedFromRunId: new URL(request.url).hostname === 'flue.invalid' ? request.headers.get('x-flue-restarted-from-run-id') || undefined : undefined,
-      createContext: (id_, runId, payload, req, initialEventIndex) => createContextForRequest(id_, runId, payload, doInstance, req, initialEventIndex),
+      createContext: (id_, runId, payload, req, initialEventIndex, dispatchId) => createContextForRequest(id_, runId, payload, doInstance, req, initialEventIndex, dispatchId),
       startWebhook: (runId, run) => {
         assertAgentsDurabilityApi(doInstance, 'runFiber');
         return doInstance.runFiber('flue:workflow:' + runId, () => runWithInstanceContext(doInstance, identity, run));
@@ -716,7 +717,7 @@ async function dispatchAgent(request, doInstance, agentName, handler) {
       agentName,
       id,
       handler,
-      createContext: (id_, runId, payload, req, initialEventIndex) => createContextForRequest(id_, runId, payload, doInstance, req, initialEventIndex),
+      createContext: (id_, runId, payload, req, initialEventIndex, dispatchId) => createContextForRequest(id_, runId, payload, doInstance, req, initialEventIndex, dispatchId),
       runHandler: (ctx, h) => {
         assertAgentsDurabilityApi(doInstance, 'keepAliveWhile');
         return doInstance.keepAliveWhile(() => h(ctx));

@@ -55,9 +55,9 @@ export type {
 } from './runtime/handle-agent.ts';
 // Runtime modules consumed by the generated server entries.
 //
-//   - `handleAgentRequest` is the per-agent dispatcher (webhook / SSE /
+//   - `handleAgentRequest` handles attached per-agent HTTP prompts (SSE /
 //     sync). Used directly by the Cloudflare entry's `dispatchAgent`
-//     wrapper to layer in DO-specific keepalive / fiber handling. The
+//     wrapper to layer in DO-specific keepalive handling. The
 //     Node target reaches the same dispatcher through `flue()`.
 //
 //   - `configureFlueRuntime` seeds the module-scoped config that

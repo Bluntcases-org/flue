@@ -22,7 +22,7 @@ describe('Cloudflare build plugin', () => {
 		expect(entry).toContain('assertNoPendingDispatchForDirectSession(doInstance, agentName, session)');
 		expect(entry).toContain("if (ctx.name === 'flue:dispatch') {");
 		expect(entry).toContain('return handleFlueDispatchRecovered(ctx, this, "moderator");');
-		expect(entry).toContain('const ctx = createContextForRequest(doInstance.name, undefined, input, doInstance, request);');
+		expect(entry).toContain('const ctx = createContextForRequest(doInstance.name, undefined, input, doInstance, request, undefined, input.dispatchId);');
 		expect(entry).toContain('createDispatchAgentHandler(agent, input)(ctx)');
 		expect(entry).toContain('resolveDispatchAgentName: (agent) => dispatchAgentNames.get(agent),');
 		expect(entry).not.toContain('runId: input.dispatchId');
@@ -61,7 +61,7 @@ describe('Cloudflare build plugin', () => {
 		expect(entry).not.toContain('flue_fiber_recovery');
 		expect(entry).not.toContain('fiber?.stash?.');
 		expect(entry).toContain("runId = decodeURIComponent(segments[1] || '');");
-		expect(entry).toContain('createContext: (id_, runId, payload, req, initialEventIndex)');
+		expect(entry).toContain('createContext: (id_, runId, payload, req, initialEventIndex, dispatchId)');
 		expect(entry).toContain("assertAgentsDurabilityApi(doInstance, 'startFiber');");
 	});
 

@@ -71,7 +71,7 @@ export interface FlueRuntime {
 	 */
 	createContext?: CreateContextFn;
 
-	/** Optional Node webhook execution wrapper. Defaults to direct invocation. */
+	/** Optional Node workflow admission execution wrapper. Defaults to direct invocation. */
 	startWebhook?: StartWebhookFn;
 
 	/** Optional Node foreground handler wrapper. Defaults to direct invocation. */
@@ -385,19 +385,35 @@ function agentRouteSpec() {
 		description:
 			'Prompts the named agent instance as an attached interaction. Use dispatch(...) from application code for asynchronous delivery.',
 		requestBody: {
-			required: false,
+			required: true,
 			content: {
 				'application/json': {
 					schema: {
 						type: 'object',
-						additionalProperties: true,
-						description: 'Agent-defined payload. Consult the target agent documentation.',
+						required: ['message'],
+						properties: {
+							message: { type: 'string' },
+							session: { type: 'string', minLength: 1, pattern: '.*\\S.*' },
+						},
 					},
 				},
 			},
 		},
 		responses: {
-			200: jsonResponse(AgentInvocationResponseSchema, 'Attached prompt result.'),
+			200: {
+				description: 'Attached prompt result or server-sent events stream, depending on the requested mode.',
+				content: {
+					'application/json': {
+						schema: resolver(AgentInvocationResponseSchema),
+					},
+					'text/event-stream': {
+						schema: {
+							type: 'string',
+							description: 'SSE frames for attached agent events correlated by instanceId without workflow run identity. A terminal event: error frame has data { type: "error", instanceId, error: { type, message, details, dev?, meta? } }.',
+						},
+					},
+				},
+			},
 			...errorResponses(),
 		},
 		'x-flue-invocation-modes': ['sync', 'stream'],

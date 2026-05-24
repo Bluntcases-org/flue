@@ -66,11 +66,11 @@ describe('WebSocket clients', () => {
 		const request = JSON.parse(connection?.socket.sent[0] ?? '{}') as { requestId: string };
 		expect(request).toMatchObject({ version: 1, type: 'prompt', message: 'Hello', session: 'chat' });
 		connection?.socket.message({ version: 1, type: 'started', requestId: request.requestId });
-		connection?.socket.message({ version: 1, type: 'event', requestId: request.requestId, event: { type: 'text_delta', text: 'Hi' } });
+		connection?.socket.message({ version: 1, type: 'event', requestId: request.requestId, event: { type: 'agent_start', instanceId: 'customer/123', session: 'chat' } });
 		connection?.socket.message({ version: 1, type: 'result', requestId: request.requestId, result: 'done' });
 
 		await expect(pending).resolves.toEqual({ result: 'done' });
-		expect(events).toEqual([{ event: { type: 'text_delta', text: 'Hi' }, context: { requestId: request.requestId } }]);
+		expect(events).toEqual([{ event: { type: 'agent_start', instanceId: 'customer/123', session: 'chat' }, context: { requestId: request.requestId } }]);
 	});
 
 	it('supports sequential agent prompts and ping on one socket', async () => {
@@ -96,6 +96,27 @@ describe('WebSocket clients', () => {
 		const pingRequest = JSON.parse(socket?.sent[2] ?? '{}') as { requestId: string };
 		socket?.message({ version: 1, type: 'pong', requestId: pingRequest.requestId });
 		await expect(ping).resolves.toBeUndefined();
+	});
+
+	it('rejects agent event frames that carry workflow identity or omit instance identity', async () => {
+		for (const event of [
+			{ type: 'agent_start' },
+			{ type: 'agent_start', instanceId: 'inst-1', runId: 'run_stale' },
+			{ type: 'run_start', instanceId: 'inst-1' },
+			{ type: 'agent_start', instanceId: 'inst-2' },
+			{ type: 'not_real', instanceId: 'inst-1' },
+		]) {
+			const { client, sockets } = socketClient();
+			const agent = client.agents.connect('assistant', 'inst-1');
+			const socket = sockets[0]?.socket;
+			socket?.message({ version: 1, type: 'ready', target: 'agent', name: 'assistant', instanceId: 'inst-1' });
+			const pending = agent.prompt('hello');
+			await Promise.resolve();
+			const request = JSON.parse(socket?.sent[0] ?? '{}') as { requestId: string };
+			socket?.message({ version: 1, type: 'event', requestId: request.requestId, event });
+			await expect(pending).rejects.toThrow('invalid protocol message');
+			expect(socket?.closeCalls).toEqual([{ code: 1008, reason: 'Invalid protocol message' }]);
+		}
 	});
 
 	it('maps operation errors to FlueSocketError without closing an agent socket', async () => {

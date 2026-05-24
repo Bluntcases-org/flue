@@ -2,10 +2,10 @@
  * Global, isolate-scoped subscription to the Flue event stream.
  *
  * `observe()` is the public hook for wiring cross-cutting concerns —
- * error reporting, log forwarding, ad-hoc metrics — into every Flue
- * run handled by the current isolate. Call it at module scope from
- * your `app.ts`; the subscriber receives every event from every run
- * for the lifetime of the isolate.
+ * error reporting, log forwarding, ad-hoc metrics — into Flue execution
+ * handled by the current isolate. Call it at module scope from your
+ * `app.ts`; the subscriber receives workflow-run and agent-interaction
+ * events for the lifetime of the isolate.
  *
  * Isolate scoping (Cloudflare): each agent runs in its own Durable
  * Object, which is its own V8 isolate. Your `app.ts` is evaluated
@@ -18,22 +18,22 @@
  *
  * Errors thrown by a subscriber are logged and swallowed; one buggy
  * subscriber does not halt event dispatch to the others or affect the
- * run itself.
+ * originating execution.
  */
 
 import type { FlueContext, FlueEvent } from '../types.ts';
 
 /**
- * Subscriber signature. Receives a fully decorated event (with
- * `runId`, `eventIndex`, `timestamp`, and tree-correlation fields
- * attached) and the originating `FlueContext`.
+ * Subscriber signature. Receives a decorated event and the originating
+ * `FlueContext`. Workflow events may carry `runId`; direct/dispatched agent
+ * events carry `instanceId` and optional `dispatchId` without a workflow run identity.
  */
 export type FlueEventSubscriber = (event: FlueEvent, ctx: FlueContext) => void;
 
 const subscribers = new Set<FlueEventSubscriber>();
 
 /**
- * Subscribe to every Flue event emitted in this isolate.
+ * Subscribe to every workflow-run or agent-interaction event emitted in this isolate.
  *
  * Usage (typically at the top of `app.ts`):
  *

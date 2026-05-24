@@ -70,6 +70,35 @@ describe('direct attached agent delivery', () => {
 		expect(dispatches).toEqual([]);
 	});
 
+	it('documents the attached message/session body and attached SSE response', async () => {
+		configureFlueRuntime({
+			target: 'node',
+			manifest: {
+				agents: [{ name: 'assistant', channels: { http: true }, created: true }],
+			},
+			handlers: { assistant: createDirectAgentHandler(createAgent(() => ({ model: false }))) },
+			createContext: createFakeContext([]),
+		});
+
+		const app = new Hono();
+		app.route('/', flue());
+		const spec = (await (await app.fetch(new Request('http://localhost/openapi.json'))).json()) as {
+			paths: Record<string, { post?: { requestBody?: { required?: boolean; content?: Record<string, { schema?: unknown }> }; responses?: Record<string, { content?: Record<string, unknown> }> } }>;
+		};
+		const operation = spec.paths['/agents/{name}/{id}']?.post;
+		expect(operation?.requestBody?.required).toBe(true);
+		expect(operation?.requestBody?.content?.['application/json']?.schema).toMatchObject({
+			type: 'object',
+			required: ['message'],
+			properties: { message: { type: 'string' }, session: { type: 'string', minLength: 1, pattern: '.*\\S.*' } },
+		});
+		expect(operation?.responses?.['200']?.content?.['application/json']).toBeDefined();
+		expect(operation?.responses?.['200']?.content?.['text/event-stream']).toBeDefined();
+		expect(operation?.responses?.['200']?.content?.['text/event-stream']).toMatchObject({
+			schema: { description: expect.stringContaining('terminal event: error frame') },
+		});
+	});
+
 	it('routes direct HTTP to a supplied session', async () => {
 		const prompts: Array<{ session: string; message: string }> = [];
 
@@ -129,7 +158,32 @@ describe('direct attached agent delivery', () => {
 		const stream = await res.text();
 		expect(stream).not.toContain('event: run_start');
 		expect(stream).toContain('event: idle');
+		expect(stream).toContain('"instanceId":"inst-1"');
+		expect(stream).not.toContain('"runId"');
 		expect(stream).not.toContain('event: run_end');
+	});
+
+	it('streams structured correlated errors for failed attached prompts', async () => {
+		configureFlueRuntime({
+			target: 'node',
+			manifest: { agents: [{ name: 'assistant', channels: { http: true }, created: true }] },
+			handlers: { assistant: async () => { throw new Error('do not leak'); } },
+			createContext: createTestContext,
+		});
+
+		const app = new Hono();
+		app.route('/', flue());
+		const res = await app.fetch(new Request('http://localhost/agents/assistant/inst-1', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json', accept: 'text/event-stream' },
+			body: JSON.stringify({ message: 'hello' }),
+		}));
+		const stream = await res.text();
+		expect(stream).toContain('event: error');
+		expect(stream).toContain('"type":"error"');
+		expect(stream).toContain('"instanceId":"inst-1"');
+		expect(stream).toContain('"type":"internal_error"');
+		expect(stream).not.toContain('do not leak');
 	});
 
 	it('rejects non-provisional direct payload shapes clearly', async () => {

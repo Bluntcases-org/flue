@@ -10,7 +10,7 @@ import {
 	webSocketUrl,
 	type WorkflowSocket,
 } from './public/websocket.ts';
-import type { AgentManifestEntry, ListResponse, RunPointer, RunRecord, RunStatus } from './types.ts';
+import type { AgentManifestEntry, AttachedAgentEvent, DirectAgentPayload, ListResponse, RunPointer, RunRecord, RunStatus } from './types.ts';
 
 export type { RequestHeaders };
 
@@ -27,8 +27,8 @@ export interface FlueClient {
 		stream(runId: string, options?: StreamOptions): AsyncIterable<import('./types.ts').FlueEvent>;
 	};
 	agents: {
-		invoke(name: string, id: string, options: { mode: 'stream'; payload?: unknown; signal?: AbortSignal }): AsyncIterable<import('./types.ts').FlueEvent>;
-		invoke(name: string, id: string, options: { mode: 'sync'; payload?: unknown; signal?: AbortSignal }): Promise<SyncInvokeResult>;
+		invoke(name: string, id: string, options: { mode: 'stream'; payload: DirectAgentPayload; signal?: AbortSignal }): AsyncIterable<AttachedAgentEvent>;
+		invoke(name: string, id: string, options: { mode: 'sync'; payload: DirectAgentPayload; signal?: AbortSignal }): Promise<SyncInvokeResult>;
 		connect(name: string, id: string): AgentSocket;
 	};
 	workflows: {

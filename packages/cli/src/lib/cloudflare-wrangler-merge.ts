@@ -37,7 +37,7 @@ const REQUIRED_COMPAT_FLAG = 'nodejs_compat';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
-/** A Flue-owned DO binding for a webhook agent (or the Sandbox class). */
+/** A Flue-owned DO binding for an agent instance (or the Sandbox class). */
 interface DoBinding {
 	class_name: string;
 	name: string;
@@ -65,7 +65,7 @@ export interface Migration {
 /**
  * Everything Flue contributes to the wrangler config.
  *
- * Flue contributes only the per-agent DO bindings (one per webhook agent) and
+ * Flue contributes only the per-agent DO bindings (one per deployed agent) and
  * a per-class migration entry for each net-new agent. Everything else — user
  * Durable Object bindings (e.g. Sandbox), container entries, migrations for
  * user DO classes, manual rename/delete migrations — belongs to the user's own

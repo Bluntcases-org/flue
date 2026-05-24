@@ -1,6 +1,7 @@
 import type {
 	AgentWebSocketClientMessage,
 	AgentWebSocketServerMessage,
+	AttachedAgentEvent,
 	FlueEvent,
 	FluePublicError,
 	WebSocketServerMessage,
@@ -37,7 +38,7 @@ export interface WorkflowSocketEventContext {
 }
 
 export type SocketEventContext = AgentSocketEventContext | WorkflowSocketEventContext;
-export type AgentSocketEventListener = (event: FlueEvent, context: AgentSocketEventContext) => void;
+export type AgentSocketEventListener = (event: AttachedAgentEvent, context: AgentSocketEventContext) => void;
 export type WorkflowSocketEventListener = (event: FlueEvent, context: WorkflowSocketEventContext) => void;
 export type SocketEventListener = AgentSocketEventListener | WorkflowSocketEventListener;
 
@@ -82,14 +83,15 @@ type PendingPing = {
 
 type SocketTarget = 'agent' | 'workflow';
 
-class ProtocolSocket<TResult, TContext> {
+class ProtocolSocket<TResult, TContext, TEvent extends FlueEvent = FlueEvent> {
 	readonly ready: Promise<void>;
 	private readonly socket: WebSocketLike;
 	private readonly target: SocketTarget;
+	private readonly agentInstanceId: string | undefined;
 	private readonly acceptsReady: (message: WebSocketServerMessage) => boolean;
 	private readonly pendingRequests = new Map<string, PendingRequest<TResult>>();
 	private readonly pendingPings = new Map<string, PendingPing>();
-	private readonly listeners = new Set<(event: FlueEvent, context: TContext) => void>();
+	private readonly listeners = new Set<(event: TEvent, context: TContext) => void>();
 	private resolveReady!: () => void;
 	private rejectReady!: (error: Error) => void;
 	private isReady = false;
@@ -97,9 +99,10 @@ class ProtocolSocket<TResult, TContext> {
 	private terminalError: Error | undefined;
 	private sequence = 0;
 
-	constructor(socket: WebSocketLike, target: SocketTarget, acceptsReady: (message: WebSocketServerMessage) => boolean) {
+	constructor(socket: WebSocketLike, target: SocketTarget, acceptsReady: (message: WebSocketServerMessage) => boolean, agentInstanceId?: string) {
 		this.socket = socket;
 		this.target = target;
+		this.agentInstanceId = agentInstanceId;
 		this.acceptsReady = acceptsReady;
 		this.ready = new Promise<void>((resolve, reject) => {
 			this.resolveReady = resolve;
@@ -110,7 +113,7 @@ class ProtocolSocket<TResult, TContext> {
 		this.socket.addEventListener('error', () => this.fail(new Error('Flue WebSocket connection failed.')));
 	}
 
-	onEvent(listener: (event: FlueEvent, context: TContext) => void): () => void {
+	onEvent(listener: (event: TEvent, context: TContext) => void): () => void {
 		this.listeners.add(listener);
 		return () => this.listeners.delete(listener);
 	}
@@ -157,7 +160,7 @@ class ProtocolSocket<TResult, TContext> {
 
 	private receive(event: unknown): void {
 		const raw = messageData(event);
-		const message = raw === undefined ? undefined : parseServerMessage(raw, this.target);
+		const message = raw === undefined ? undefined : parseServerMessage(raw, this.target, this.agentInstanceId);
 		if (!message) {
 			this.protocolFailure();
 			return;
@@ -182,7 +185,7 @@ class ProtocolSocket<TResult, TContext> {
 				const context = this.target === 'workflow'
 					? { requestId: message.requestId, runId: 'runId' in message ? message.runId : undefined }
 					: { requestId: message.requestId };
-				for (const listener of this.listeners) listener(message.event, context as TContext);
+				for (const listener of this.listeners) listener(message.event as TEvent, context as TContext);
 				return;
 			}
 			case 'result': {
@@ -251,13 +254,14 @@ class ProtocolSocket<TResult, TContext> {
 
 class AgentSocketClient implements AgentSocket {
 	readonly ready: Promise<void>;
-	private readonly connection: ProtocolSocket<AgentSocketInvokeResult, AgentSocketEventContext>;
+	private readonly connection: ProtocolSocket<AgentSocketInvokeResult, AgentSocketEventContext, AttachedAgentEvent>;
 
 	constructor(socket: WebSocketLike, name: string, id: string) {
 		this.connection = new ProtocolSocket(
 			socket,
 			'agent',
 			(message) => message.type === 'ready' && message.target === 'agent' && message.name === name && message.instanceId === id,
+			id,
 		);
 		this.ready = this.connection.ready;
 	}
@@ -287,7 +291,7 @@ class AgentSocketClient implements AgentSocket {
 
 class WorkflowSocketClient implements WorkflowSocket {
 	readonly ready: Promise<void>;
-	private readonly connection: ProtocolSocket<WorkflowSocketInvokeResult, WorkflowSocketEventContext>;
+	private readonly connection: ProtocolSocket<WorkflowSocketInvokeResult, WorkflowSocketEventContext, FlueEvent>;
 	private invoked = false;
 
 	constructor(socket: WebSocketLike, name: string) {
@@ -337,7 +341,7 @@ export function defaultWebSocketFactory(url: string): WebSocketLike {
 	return new Socket(url);
 }
 
-function parseServerMessage(value: string, target: SocketTarget): WebSocketServerMessage | undefined {
+function parseServerMessage(value: string, target: SocketTarget, agentInstanceId?: string): WebSocketServerMessage | undefined {
 	let parsed: unknown;
 	try {
 		parsed = JSON.parse(value);
@@ -358,7 +362,7 @@ function parseServerMessage(value: string, target: SocketTarget): WebSocketServe
 			return undefined;
 		case 'event':
 			if (typeof parsed.requestId !== 'string' || !isRecord(parsed.event) || typeof parsed.event.type !== 'string') return undefined;
-			if (target === 'agent' && parsed.runId === undefined) return parsed as unknown as AgentWebSocketServerMessage;
+			if (target === 'agent' && parsed.runId === undefined && agentInstanceId !== undefined && isAttachedAgentEvent(parsed.event, agentInstanceId)) return parsed as unknown as AgentWebSocketServerMessage;
 			if (target === 'workflow' && typeof parsed.runId === 'string') return parsed as unknown as WorkflowWebSocketServerMessage;
 			return undefined;
 		case 'error':
@@ -377,6 +381,20 @@ function parseServerMessage(value: string, target: SocketTarget): WebSocketServe
 
 function isPublicError(value: unknown): value is FluePublicError {
 	return isRecord(value) && typeof value.type === 'string' && typeof value.message === 'string' && typeof value.details === 'string';
+}
+
+const ATTACHED_AGENT_EVENT_TYPES = new Set([
+	'agent_start', 'agent_end', 'turn_start', 'turn_end', 'message_start', 'message_update', 'message_end',
+	'tool_execution_start', 'tool_execution_update', 'tool_execution_end', 'text_delta', 'thinking_start',
+	'thinking_delta', 'thinking_end', 'tool_start', 'tool_call', 'turn', 'task_start', 'task',
+	'compaction_start', 'compaction', 'operation_start', 'operation', 'log', 'idle',
+]);
+
+function isAttachedAgentEvent(value: Record<string, unknown>, instanceId: string): value is AttachedAgentEvent {
+	return typeof value.type === 'string'
+		&& ATTACHED_AGENT_EVENT_TYPES.has(value.type)
+		&& value.instanceId === instanceId
+		&& value.runId === undefined;
 }
 
 function messageData(event: unknown): string | undefined {

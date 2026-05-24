@@ -23,6 +23,7 @@ import type {
 export interface FlueContextConfig {
 	id: string;
 	runId?: string;
+	dispatchId?: string;
 	payload: any;
 	env: Record<string, any>;
 	agentConfig: AgentConfig;
@@ -60,7 +61,8 @@ export function createFlueContext(config: FlueContextConfig): FlueContextInterna
 	const emitEvent = (event: FlueEvent): FlueEvent => {
 		const decorated: FlueEvent = {
 			...event,
-			...(config.runId === undefined ? {} : { runId: config.runId }),
+			...(config.runId === undefined ? { instanceId: config.id } : { runId: config.runId }),
+			...(config.dispatchId === undefined ? {} : { dispatchId: config.dispatchId }),
 			eventIndex: eventIndex++,
 			timestamp: new Date().toISOString(),
 		};
