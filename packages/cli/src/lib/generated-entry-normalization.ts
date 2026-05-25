@@ -3,9 +3,11 @@ export function generateBuiltModuleNormalizationSource(): string {
 function normalizeBuiltModules(agentModules, workflowModules, channelModules) {
   const manifest = { agents: [], workflows: [] };
   const directHandlers = {};
+  const localAgentHandlers = {};
   const createdAgents = {};
   const dispatchAgentNames = new Map();
   const workflowHandlers = {};
+  const localWorkflowHandlers = {};
   const websocketAgentHandlers = {};
   const websocketWorkflowHandlers = {};
   const agentRouteMiddleware = {};
@@ -26,8 +28,9 @@ function normalizeBuiltModules(agentModules, workflowModules, channelModules) {
     const previousDispatchName = dispatchAgentNames.get(mod.default);
     if (previousDispatchName !== undefined) throw new Error('[flue] Agents "' + previousDispatchName + '" and "' + name + '" default-export the same created agent value. Use distinct createAgent(...) values for dispatchable agent modules.');
     dispatchAgentNames.set(mod.default, name);
-    if (channels.http) directHandlers[name] = createDirectAgentHandler(mod.default);
-    if (channels.websocket) websocketAgentHandlers[name] = createDirectAgentHandler(mod.default);
+    localAgentHandlers[name] = createDirectAgentHandler(mod.default);
+    if (channels.http) directHandlers[name] = localAgentHandlers[name];
+    if (channels.websocket) websocketAgentHandlers[name] = localAgentHandlers[name];
     if (typeof mod.route === 'function') agentRouteMiddleware[name] = mod.route;
     if (typeof mod.websocket === 'function') agentWebSocketMiddleware[name] = mod.websocket;
   }
@@ -41,6 +44,7 @@ function normalizeBuiltModules(agentModules, workflowModules, channelModules) {
     if (typeof mod.websocket === 'function') channels.websocket = true;
     assertDirectChannels(channels, 'workflow "' + name + '"');
     manifest.workflows.push({ name, channels });
+    localWorkflowHandlers[name] = mod.run;
     if (channels.http) workflowHandlers[name] = mod.run;
     if (channels.websocket) websocketWorkflowHandlers[name] = mod.run;
     if (typeof mod.route === 'function') workflowRouteMiddleware[name] = mod.route;
@@ -57,7 +61,7 @@ function normalizeBuiltModules(agentModules, workflowModules, channelModules) {
     }
   }
 
-  return { manifest, directHandlers, createdAgents, dispatchAgentNames, workflowHandlers, websocketAgentHandlers, websocketWorkflowHandlers, agentRouteMiddleware, agentWebSocketMiddleware, workflowRouteMiddleware, workflowWebSocketMiddleware, channelApps };
+  return { manifest, directHandlers, localAgentHandlers, createdAgents, dispatchAgentNames, workflowHandlers, localWorkflowHandlers, websocketAgentHandlers, websocketWorkflowHandlers, agentRouteMiddleware, agentWebSocketMiddleware, workflowRouteMiddleware, workflowWebSocketMiddleware, channelApps };
 }
 
 function normalizeChannelList(value, label) {

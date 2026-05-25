@@ -76,6 +76,12 @@ import {
   createDefaultFlueApp,
   createDirectAgentHandler,
   createAgentDispatchProcessor,
+  invokeWorkflowAttached,
+  invokeDirectAttached,
+  generateWorkflowRunId,
+  createWebSocketErrorMessage,
+  parseWorkflowWebSocketMessage,
+  parseAgentWebSocketMessage,
   InMemoryDispatchQueue,
 } from '@flue/runtime/internal';
 ${agentImports}
@@ -100,10 +106,13 @@ const channelModules = {
 ${channelModuleEntries}
 };
 const normalized = normalizeBuiltModules(agentModules, workflowModules, channelModules);
-const { manifest, directHandlers, createdAgents, dispatchAgentNames, workflowHandlers, websocketAgentHandlers, websocketWorkflowHandlers, agentRouteMiddleware, agentWebSocketMiddleware, workflowRouteMiddleware, workflowWebSocketMiddleware, channelApps } = normalized;
+const { manifest, directHandlers, localAgentHandlers, createdAgents, dispatchAgentNames, workflowHandlers, localWorkflowHandlers, websocketAgentHandlers, websocketWorkflowHandlers, agentRouteMiddleware, agentWebSocketMiddleware, workflowRouteMiddleware, workflowWebSocketMiddleware, channelApps } = normalized;
 
-// When the CLI starts this server via \`flue run\`, it sets FLUE_MODE=local.
 const isLocalMode = process.env.FLUE_MODE === 'local';
+const localCliTarget = process.env.FLUE_CLI_TARGET;
+const localCliName = process.env.FLUE_CLI_NAME;
+const localCliId = process.env.FLUE_CLI_ID;
+const isLocalCliMode = localCliTarget !== undefined || localCliName !== undefined || localCliId !== undefined;
 
 // ─── Sandbox Environments ───────────────────────────────────────────────────
 
@@ -149,7 +158,7 @@ function createContextForRequest(id, runId, payload, req, initialEventIndex, dis
 
 // ─── Runtime seed ───────────────────────────────────────────────────────────
 
-const websocketTransport = createNodeWebSocketTransport({
+const websocketTransport = isLocalCliMode ? undefined : createNodeWebSocketTransport({
   manifest,
   agentHandlers: websocketAgentHandlers,
   workflowHandlers: websocketWorkflowHandlers,
@@ -178,8 +187,8 @@ configureFlueRuntime({
   workflowRouteMiddleware,
   workflowWebSocketMiddleware,
   channelApps,
-  nodeWebSocketAgentRoute: websocketTransport.agentRoute,
-  nodeWebSocketWorkflowRoute: websocketTransport.workflowRoute,
+  nodeWebSocketAgentRoute: websocketTransport?.agentRoute,
+  nodeWebSocketWorkflowRoute: websocketTransport?.workflowRoute,
   createContext: createContextForRequest,
   runStore,
   runSubscribers,
@@ -209,30 +218,147 @@ const app = createDefaultFlueApp();`
 
 // ─── Start ──────────────────────────────────────────────────────────────────
 
-const port = parseInt(process.env.PORT || '3000', 10);
+function sendLocalMessage(message, done) {
+  if (!process.send) throw new Error('[flue] Local CLI execution requires an inherited IPC channel.');
+  process.send(message, done);
+}
 
-const server = serve({
-  fetch: app.fetch,
-  websocket: { server: websocketTransport.server },
-  port,
-  // SSE requests can outlive Node's default 300s request timeout.
-  serverOptions: { requestTimeout: 0 },
-});
-console.log('[flue] Server listening on http://localhost:' + port);
-if (isLocalMode) {
-	console.log('[flue] Mode: local');
-	console.log('[flue] Agents: ' + ${JSON.stringify(agents.map((a) => a.name).join(', '))});
+function localRequest() {
+  return new Request('http://flue.local/_cli', { method: 'POST' });
+}
+
+function localErrorMessage(reason, requestId) {
+  return { version: 1, type: 'error', requestId, error: { type: 'invalid_request', message: reason, details: reason } };
+}
+
+function failLocalStartup(reason) {
+  sendLocalMessage(localErrorMessage(reason), () => process.exit(1));
+}
+
+function startLocalWorkflow(name) {
+  const handler = localWorkflowHandlers[name];
+  if (!handler) {
+    failLocalStartup('Unknown workflow: ' + name);
+    return;
+  }
+  let invoked = false;
+  sendLocalMessage({ version: 1, type: 'ready', target: 'workflow', name });
+  process.on('message', (raw) => {
+    let message;
+    try {
+      message = parseWorkflowWebSocketMessage(JSON.stringify(raw));
+      if (invoked) {
+        sendLocalMessage(localErrorMessage('Local workflow execution accepts one invocation only.', message.requestId));
+        return;
+      }
+      invoked = true;
+    } catch (error) {
+      sendLocalMessage(createWebSocketErrorMessage(error));
+      return;
+    }
+    const runId = generateWorkflowRunId(name);
+    sendLocalMessage({ version: 1, type: 'started', requestId: message.requestId, runId });
+    void invokeWorkflowAttached({
+      owner: { kind: 'workflow', workflowName: name, instanceId: runId },
+      id: runId,
+      runId,
+      payload: message.payload,
+      request: localRequest(),
+      handler,
+      createContext: createContextForRequest,
+      onEvent: (event) => sendLocalMessage({ version: 1, type: 'event', requestId: message.requestId, runId, event }),
+      emitIdleOnComplete: true,
+      runStore,
+      runSubscribers,
+      runRegistry,
+    }).then(
+      (invocation) => sendLocalMessage({ version: 1, type: 'result', requestId: message.requestId, runId, result: invocation.result ?? null }, () => process.exit(0)),
+      (error) => sendLocalMessage(createWebSocketErrorMessage(error, message.requestId, runId), () => process.exit(1)),
+    );
+  });
+}
+
+function startLocalAgent(name, id) {
+  const handler = localAgentHandlers[name];
+  if (!handler) {
+    failLocalStartup('Unknown agent: ' + name);
+    return;
+  }
+  if (!id) {
+    failLocalStartup('Local agent connection requires an instance id.');
+    return;
+  }
+  sendLocalMessage({ version: 1, type: 'ready', target: 'agent', name, instanceId: id });
+  process.on('message', (raw) => {
+    let message;
+    try {
+      message = parseAgentWebSocketMessage(JSON.stringify(raw));
+    } catch (error) {
+      sendLocalMessage(createWebSocketErrorMessage(error));
+      return;
+    }
+    if (message.type === 'ping') {
+      sendLocalMessage({ version: 1, type: 'pong', requestId: message.requestId });
+      return;
+    }
+    let didStart = false;
+    void invokeDirectAttached({
+      agentName: name,
+      id,
+      payload: { message: message.message, session: message.session },
+      request: localRequest(),
+      handler,
+      createContext: createContextForRequest,
+      onEvent: (event) => {
+        if (!didStart) {
+          didStart = true;
+          sendLocalMessage({ version: 1, type: 'started', requestId: message.requestId });
+        }
+        sendLocalMessage({ version: 1, type: 'event', requestId: message.requestId, event });
+      },
+      emitIdleOnComplete: true,
+    }).then(
+      (result) => sendLocalMessage({ version: 1, type: 'result', requestId: message.requestId, result: result ?? null }),
+      (error) => sendLocalMessage(createWebSocketErrorMessage(error, message.requestId)),
+    );
+  });
+}
+
+if (isLocalCliMode) {
+  if (typeof process.send !== 'function') {
+    throw new Error('[flue] Local CLI execution requires an inherited IPC channel.');
+  }
+  if (!localCliName || (localCliTarget !== 'workflow' && localCliTarget !== 'agent')) {
+    failLocalStartup('Invalid local CLI target configuration.');
+  } else if (localCliTarget === 'workflow') {
+    startLocalWorkflow(localCliName);
+  } else {
+    startLocalAgent(localCliName, localCliId);
+  }
+  process.on('disconnect', () => process.exit(0));
 } else {
-	console.log('[flue] Agents: ' + ${JSON.stringify(agents.map((a) => a.name).join(', '))});
+  const port = parseInt(process.env.PORT || '3000', 10);
+  const server = serve({
+    fetch: app.fetch,
+    websocket: { server: websocketTransport.server },
+    port,
+    serverOptions: { requestTimeout: 0 },
+  });
+  console.log('[flue] Server listening on http://localhost:' + port);
+  if (isLocalMode) {
+    console.log('[flue] Mode: local');
+    console.log('[flue] Agents: ' + ${JSON.stringify(agents.map((a) => a.name).join(', '))});
+  } else {
+    console.log('[flue] Agents: ' + ${JSON.stringify(agents.map((a) => a.name).join(', '))});
+  }
+  async function stop() {
+    await websocketTransport.close();
+    server.close();
+    process.exit(0);
+  }
+  process.on('SIGINT', () => { void stop(); });
+  process.on('SIGTERM', () => { void stop(); });
 }
-
-async function stop() {
-  await websocketTransport.close();
-  server.close();
-  process.exit(0);
-}
-process.on('SIGINT', () => { void stop(); });
-process.on('SIGTERM', () => { void stop(); });
 `;
 	}
 

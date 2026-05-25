@@ -385,7 +385,7 @@ flue add https://e2b.dev --category sandbox | claude   # build one from scratch 
 
 The CLI fetches the markdown for the named connector and prints it to stdout when run by an agent (or with `--print`), or shows a short copyable `flue add ... | <agent>` recipe when run by a human in a terminal. Your agent reads the markdown and writes a small TypeScript adapter into `./.flue/connectors/<name>.ts` (or `./connectors/<name>.ts` for the root layout).
 
-## Running Agents
+## Running and Connecting
 
 ### Local Development (`flue dev`)
 
@@ -426,11 +426,19 @@ Repeatable; later files override earlier ones on key collision. Shell-set env va
 
 ### Trigger From the CLI (`flue run`)
 
-Build and run any workflow locally, perfect for running in CI or for one-shot scripted invocations. Production-shaped — builds the deployable artifact and starts it once.
+Build and run any workflow locally, perfect for CI or one-shot scripted invocations. The CLI invokes the built Node artifact through a private child-process channel, independent of public workflow routes and middleware.
 
 ```bash
 flue run hello --target node \
   --payload '{"text": "Hello world", "language": "French"}'
+```
+
+### Connect to an Agent Instance (`flue connect`)
+
+Open an interactive local session with an agent instance. The built Node child remains alive for the connection so repeated prompts can share in-memory session state.
+
+```bash
+flue connect chat customer-123 --target node --session support
 ```
 
 ### Trigger From HTTP Endpoint (`flue build`)

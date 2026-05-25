@@ -9,7 +9,7 @@ TODO: Document how the `flue` executable is made available in a project.
 
 ## Commands
 
-TODO: Summarize `init`, `dev`, `run`, `build`, `logs`, and `add` with links to command pages.
+The CLI supports project setup with `init`, local serving with `dev`, finite workflow execution with `run`, interactive local agent-instance sessions with `connect`, deployable output with `build`, workflow-run observation with `logs`, and connector installation with `add`.
 
 ## Common options
 

@@ -5,24 +5,36 @@ description: Reference for executing one workflow invocation from the command li
 
 ## Synopsis
 
-TODO: Document the command syntax and workflow-name argument.
+```bash
+flue run <workflow> [--target node] [--payload <json>] [--root <path>] [--output <path>] [--config <path>] [--env <path>]...
+```
 
 ## Description
 
-TODO: State that this is one-shot workflow execution for local scripts and CI.
+`flue run` builds the selected Node project and executes one discovered workflow locally. It uses a private child-process channel, so the workflow does not need a public HTTP or WebSocket exposure declaration and application ingress middleware is not executed.
+
+A workflow invocation is a finite run with a run ID. Use it for local scripts and CI tasks, not interactive agent sessions.
 
 ## Options
 
-TODO: Document payload JSON, environment files, root/output/config, and target requirements.
+- `--payload <json>` supplies the workflow payload. Defaults to `{}`.
+- `--root <path>` selects the project root.
+- `--output <path>` selects the build output directory.
+- `--config <path>` selects a Flue configuration file.
+- `--env <path>` loads Node environment variables; repeat for multiple files.
+- `--target node` selects the supported local execution target.
 
 ## Output and events
 
-TODO: Explain progress on stderr, terminal output on stdout, and workflow run identity.
+Progress, run identity, and streamed events are written to stderr. A successful terminal workflow result is written as JSON to stdout.
 
 ## Target support
 
-TODO: State the Node.js execution support and Cloudflare local-testing alternative.
+Local `flue run` supports Node builds. Cloudflare-target workflows must be exercised through a Workers runtime, such as `flue dev --target cloudflare` and their public ingress surface.
 
 ## Examples
 
-TODO: Provide payload and scripting examples.
+```bash
+flue run hello --target node
+flue run summarize --target node --payload '{"text":"hello"}' --env .env
+```

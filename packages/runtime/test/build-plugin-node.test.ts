@@ -21,6 +21,8 @@ describe('Node build plugin', () => {
 		expect(entry).toContain('Bash,\n  InMemoryFs,\n  createFlueContext,');
 		expect(entry).not.toContain("from 'just-bash'");
 		expect(entry).toContain('const workflowHandlers = {};');
+		expect(entry).toContain('const localWorkflowHandlers = {};');
+		expect(entry).toContain('const localAgentHandlers = {};');
 		expect(entry).toContain('const websocketAgentHandlers = {};');
 		expect(entry).toContain('const websocketWorkflowHandlers = {};');
 		expect(entry).toContain('const agentRouteMiddleware = {};');
@@ -402,6 +404,101 @@ describe('Node build plugin', () => {
 		await expect(build({ root, target: 'node' })).rejects.toThrow('Duplicate agent basename "assistant"');
 	});
 
+	it('invokes an internal-only workflow over local IPC without public HTTP exposure', async () => {
+		const root = createFixtureRoot('flue-local-ipc-workflow-');
+		fs.mkdirSync(path.join(root, 'workflows'));
+		fs.writeFileSync(
+			path.join(root, 'workflows', 'private-job.ts'),
+			`export async function run(ctx) { return { payload: ctx.payload, url: ctx.req.url }; }\n`,
+		);
+		await build({ root, target: 'node' });
+
+		const child = startGeneratedIpcChild(root, { FLUE_CLI_TARGET: 'workflow', FLUE_CLI_NAME: 'private-job' });
+		try {
+			const ready = await waitForChildMessage(child, (message) => message.type === 'ready');
+			expect(ready).toMatchObject({ type: 'ready', target: 'workflow', name: 'private-job' });
+			child.send?.({ version: 1, type: 'invoke', requestId: 'req-ipc', payload: { ok: true } });
+			const result = await waitForChildMessage(child, (message) => message.type === 'result');
+			expect(result).toMatchObject({ type: 'result', requestId: 'req-ipc', result: { payload: { ok: true }, url: 'http://flue.local/_cli' } });
+		} finally {
+			if (child.exitCode === null) child.kill('SIGTERM');
+		}
+
+		const { child: server, port } = await startGeneratedServer(root);
+		try {
+			const response = await fetch(`http://localhost:${port}/workflows/private-job`, { method: 'POST' });
+			expect(response.status).toBe(404);
+		} finally {
+			server.kill('SIGTERM');
+		}
+	});
+
+	it('bypasses public workflow middleware during local IPC execution', async () => {
+		const root = createFixtureRoot('flue-local-ipc-middleware-');
+		fs.mkdirSync(path.join(root, 'workflows'));
+		fs.writeFileSync(
+			path.join(root, 'workflows', 'protected-job.ts'),
+			`export const route = async (c) => c.text('Blocked', 403);\nexport async function run() { return { ok: true }; }\n`,
+		);
+		await build({ root, target: 'node' });
+
+		const child = startGeneratedIpcChild(root, { FLUE_CLI_TARGET: 'workflow', FLUE_CLI_NAME: 'protected-job' });
+		try {
+			await waitForChildMessage(child, (message) => message.type === 'ready');
+			child.send?.({ version: 1, type: 'invoke', requestId: 'req-protected' });
+			const result = await waitForChildMessage(child, (message) => message.type === 'result');
+			expect(result).toMatchObject({ type: 'result', result: { ok: true } });
+		} finally {
+			if (child.exitCode === null) child.kill('SIGTERM');
+		}
+
+		const { child: server, port } = await startGeneratedServer(root);
+		try {
+			const response = await fetch(`http://localhost:${port}/workflows/protected-job?wait=result`, { method: 'POST' });
+			expect(response.status).toBe(403);
+		} finally {
+			server.kill('SIGTERM');
+		}
+	});
+
+	it('accepts local IPC prompts for a non-public agent and keeps the connection alive after errors', async () => {
+		const root = createFixtureRoot('flue-local-ipc-agent-');
+		fs.mkdirSync(path.join(root, 'agents'));
+		fs.writeFileSync(
+			path.join(root, 'agents', 'assistant.ts'),
+			`import { createAgent } from '@flue/runtime';\nexport default createAgent(({ id }) => ({ model: false, instructions: id }));\n`,
+		);
+		await build({ root, target: 'node' });
+
+		const child = startGeneratedIpcChild(root, { FLUE_CLI_TARGET: 'agent', FLUE_CLI_NAME: 'assistant', FLUE_CLI_ID: 'thread-1' });
+		try {
+			const ready = await waitForChildMessage(child, (message) => message.type === 'ready');
+			expect(ready).toMatchObject({ type: 'ready', target: 'agent', name: 'assistant', instanceId: 'thread-1' });
+			child.send?.({ version: 1, type: 'prompt', requestId: 'req-agent', message: 'hello', session: 'support' });
+			const error = await waitForChildMessage(child, (message) => message.type === 'error' && message.requestId === 'req-agent');
+			expect(error).toMatchObject({ type: 'error', requestId: 'req-agent', error: { type: 'internal_error' } });
+			child.send?.({ version: 1, type: 'ping', requestId: 'req-after-error' });
+			const pong = await waitForChildMessage(child, (message) => message.type === 'pong');
+			expect(pong).toMatchObject({ type: 'pong', requestId: 'req-after-error' });
+		} finally {
+			if (child.exitCode === null) child.kill('SIGTERM');
+		}
+	});
+
+	it('fails local CLI mode without an inherited IPC channel', async () => {
+		const root = createFixtureRoot('flue-local-ipc-missing-channel-');
+		fs.mkdirSync(path.join(root, 'workflows'));
+		fs.writeFileSync(path.join(root, 'workflows', 'job.ts'), `export async function run() { return true; }\n`);
+		await build({ root, target: 'node' });
+		const child = spawn('node', [path.join(root, 'dist', 'server.mjs')], {
+			cwd: root,
+			stdio: ['ignore', 'pipe', 'pipe'],
+			env: { ...process.env, FLUE_MODE: 'local', FLUE_CLI_TARGET: 'workflow', FLUE_CLI_NAME: 'job' },
+		});
+		const output = await waitForProcessExit(child);
+		expect(output).toContain('Local CLI execution requires an inherited IPC channel');
+	});
+
 	it('loads workflow entrypoints exported through ordinary module syntax', async () => {
 		const root = createFixtureRoot('flue-workflow-module-exports-');
 		fs.mkdirSync(path.join(root, 'workflows'));
@@ -480,6 +577,32 @@ function createFixtureRoot(prefix: string): string {
 	fs.mkdirSync(path.join(root, 'node_modules', '@flue'), { recursive: true });
 	fs.symlinkSync(process.cwd(), path.join(root, 'node_modules', '@flue', 'runtime'), 'dir');
 	return root;
+}
+
+function startGeneratedIpcChild(root: string, env: Record<string, string>): ChildProcess {
+	return spawn('node', [path.join(root, 'dist', 'server.mjs')], {
+		cwd: root,
+		stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+		env: { ...process.env, FLUE_MODE: 'local', ...env },
+	});
+}
+
+async function waitForChildMessage(child: ChildProcess, predicate: (message: Record<string, any>) => boolean): Promise<Record<string, any>> {
+	return new Promise((resolve, reject) => {
+		const timeout = setTimeout(() => {
+			child.off('message', onMessage);
+			reject(new Error('Expected IPC message was not received.'));
+		}, 5000);
+		const onMessage = (raw: unknown) => {
+			const message = raw as Record<string, any>;
+			if (!predicate(message)) return;
+			clearTimeout(timeout);
+			child.off('message', onMessage);
+			resolve(message);
+		};
+		child.on('message', onMessage);
+		child.once('error', reject);
+	});
 }
 
 async function startGeneratedServer(root: string): Promise<{ child: ChildProcess; port: number }> {

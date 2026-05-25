@@ -63,7 +63,7 @@ npx flue run hello --target node \
   --payload '{"name": "World"}'
 ```
 
-`flue run` builds the project, starts a temporary server, invokes the workflow, streams progress to stderr, and prints the final result as JSON to stdout. This is the fastest way to iterate on a workflow — no deployment needed.
+`flue run` builds the project, invokes the workflow through a private local child-process channel, streams progress to stderr, and prints the final result as JSON to stdout. The workflow does not need public transport exposure for this local command.
 
 ### 4. Wire it into GitLab CI/CD
 
@@ -321,7 +321,7 @@ export async function run ({ init, payload }: FlueContext) {
 
 This pattern — prompt or skill call, check the result, decide what to do next — is how you build sophisticated agents that go beyond single-shot prompts.
 
-## Running agents locally
+## Running workflows locally
 
 During development, `flue run` is your main tool. It builds the project and runs the workflow in one step:
 
@@ -335,4 +335,4 @@ npx flue run triage --target node \
   --payload '{"issueIid": 42}' | jq '.severity'
 ```
 
-The CLI builds your project root, starts a temporary server, invokes the workflow via SSE, streams progress to stderr, and prints the final result to stdout.
+The CLI builds your project root, invokes the workflow through a private local child-process channel, streams progress to stderr, and prints the final result to stdout.

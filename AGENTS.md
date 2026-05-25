@@ -38,12 +38,13 @@ pnpm run build          # in packages/runtime/
 pnpm run build          # in packages/cli/
 ```
 
-## Running Agents
+## Running and Connecting
 
-Three commands:
+Four commands:
 
 - `flue dev` — long-running watch-mode dev server. Edits trigger rebuilds + reloads.
 - `flue run` — one-shot, production-style: build, invoke a workflow once, exit. Used in CI / scripted invocations.
+- `flue connect` — build and open an interactive local session with an agent instance.
 - `flue build` — produce a `dist/` deployable artifact (no run).
 
 `--root` points at the project root. Defaults to the current working directory if omitted. By default, the build is written to `<root>/dist/`; use `--output <path>` to redirect the build elsewhere.
@@ -101,7 +102,15 @@ node ../../packages/cli/bin/flue.mjs run hello --target node
 node ../../packages/cli/bin/flue.mjs run with-thinking --target node
 ```
 
-This builds the project, starts a temporary server, invokes the workflow via SSE, streams output to stderr, prints the final result to stdout, and shuts down.
+This builds the project, invokes the workflow through a private local child-process channel, streams output to stderr, prints the final result to stdout, and exits. Workflows do not need public HTTP or WebSocket exposure for local `flue run`.
+
+### `flue connect`
+
+```
+node packages/cli/bin/flue.mjs connect <agent-name> <instance-id> --target node [--session <name>] [--root <path>] [--output <path>]
+```
+
+This builds the project and opens an interactive local connection to one agent instance. Enter one prompt per line; the child process stays alive until the connection closes so in-memory session state can continue between prompts.
 
 **Requires `ANTHROPIC_API_KEY` in the environment.** For testing, use `claude-haiku-4-5` (cheapest model).
 
