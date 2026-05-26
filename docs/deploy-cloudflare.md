@@ -411,10 +411,11 @@ A deployment or code update can reset a Durable Object while an operation is run
 | Operation | After interruption |
 | --- | --- |
 | Direct attached agent HTTP/WebSocket prompt | No public agent run exists. If the attached request or socket is interrupted, Flue does not provide a run-resume API. |
+| Delegated agent prompt via `session.delegate()` | The awaiting caller uses a private attached request to the target Durable Object. There is no run/status resource; cancellation and temporary target-session cleanup are best effort if execution is interrupted. |
 | Dispatched agent input | Durable delivery and deduplication are keyed by `dispatchId` and persisted session/delivery state, not by a run. |
 | Flue workflow invocation | Flue terminalizes the interrupted attempt and restarts the workflow from its persisted payload as a new linked run. |
 
-Recovery is **at-least-once** where durable asynchronous processing or workflow restart applies. An interruption after an external action has begun can cause that action to execute again. For dispatched agent work, use `dispatchId` or an application-level idempotency key when coordinating external side effects. Direct attached prompts do not expose a run identifier. Because restarted workflows receive a new `runId`, workflow code should use an application-level idempotency key that remains stable across attempts.
+Recovery is **at-least-once** where durable asynchronous processing or workflow restart applies. An interruption after an external action has begun can cause that action to execute again. For dispatched agent work, use `dispatchId` or an application-level idempotency key when coordinating external side effects. Direct attached prompts and delegated prompts do not expose a run identifier or durable result retrieval API. Because restarted workflows receive a new `runId`, workflow code should use an application-level idempotency key that remains stable across attempts.
 
 Flue persists workflow invocation payloads with workflow run records so interrupted executions can restart and operators can inspect their original input through workflow run APIs. Workflow attempt records expose `restartedAsRunId` and `restartedFromRunId` links between interrupted and replacement attempts. Dispatched agent inputs are persisted as delivery/session state correlated by `dispatchId`, not as agent runs. Treat persisted inputs as durable application data: do not submit secrets or sensitive values unless your application retention and access policy permits storing them.
 

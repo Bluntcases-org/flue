@@ -507,6 +507,39 @@ describe('Node build plugin', () => {
 		}
 	}, 15000);
 
+	it('delegates using the same discovered created-agent value and instance id through the built Node artifact', async () => {
+		const root = createFixtureRoot('flue-local-ipc-self-delegation-');
+		linkPackage(root, '@earendil-works/pi-ai', fileURLToPath(import.meta.resolve('@earendil-works/pi-ai')));
+		fs.mkdirSync(path.join(root, 'agents'));
+		fs.mkdirSync(path.join(root, 'workflows'));
+		fs.writeFileSync(
+			path.join(root, 'agents', 'reviewer.ts'),
+			`import { createAgent } from '@flue/runtime';\n` +
+				`import { registerProvider } from '@flue/runtime/app';\n` +
+				`import { fauxAssistantMessage, registerFauxProvider } from '@earendil-works/pi-ai';\n` +
+				`const faux = registerFauxProvider({ api: 'self-delegation-fixture-api', provider: 'self-delegation-fixture' });\n` +
+				`registerProvider('self-delegation-fixture', { api: faux.api, baseUrl: 'https://fixture.invalid' });\n` +
+				`faux.setResponses([fauxAssistantMessage('self review complete')]);\n` +
+				`export default createAgent(() => ({ model: 'self-delegation-fixture/reviewer' }));\n`,
+		);
+		fs.writeFileSync(
+			path.join(root, 'workflows', 'orchestrate.ts'),
+			`import reviewer from '../agents/reviewer.ts';\n` +
+				`export async function run(ctx) { const harness = await ctx.init(reviewer); const session = await harness.session(); const result = await session.delegate('Review this.', { agent: reviewer, id: ctx.id }); return { text: result.text, model: result.model.id }; }\n`,
+		);
+		await build({ root, target: 'node' });
+
+		const child = startGeneratedIpcChild(root, { FLUE_CLI_TARGET: 'workflow', FLUE_CLI_NAME: 'orchestrate' });
+		try {
+			await waitForChildMessage(child, (message) => message.type === 'ready');
+			child.send?.({ version: 1, type: 'invoke', requestId: 'req-self-delegation' });
+			const terminal = await waitForChildMessage(child, (message) => message.type === 'result' || message.type === 'error');
+			expect(terminal).toMatchObject({ type: 'result', result: { text: 'self review complete', model: 'reviewer' } });
+		} finally {
+			if (child.exitCode === null) child.kill('SIGTERM');
+		}
+	}, 15000);
+
 	it('rejects delegation to an undiscovered created-agent value in a built Node artifact', async () => {
 		const root = createFixtureRoot('flue-local-ipc-undiscovered-delegation-');
 		fs.mkdirSync(path.join(root, 'workflows'));
