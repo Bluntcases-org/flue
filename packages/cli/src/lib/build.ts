@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import { packageUpSync } from 'package-up';
 import { CloudflarePlugin } from './build-plugin-cloudflare.ts';
 import { NodePlugin } from './build-plugin-node.ts';
+import { markdownImportPlugin } from './vite-markdown-import-plugin.ts';
 import { skillReferencePlugin } from './vite-skill-reference-plugin.ts';
 import type {
 	AgentInfo,
@@ -401,7 +402,7 @@ function createSharedViteConfig(root: string, bootstrapEntries: readonly string[
 	return {
 		configFile: false as const,
 		root,
-		plugins: [skillReferencePlugin({ root, bootstrapEntries })],
+		plugins: [markdownImportPlugin(), skillReferencePlugin({ root, bootstrapEntries })],
 	};
 }
 

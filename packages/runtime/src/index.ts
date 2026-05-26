@@ -1,4 +1,5 @@
 /// <reference path="../types/skill-md.d.ts" />
+/// <reference path="../types/markdown-md.d.ts" />
 
 export type {
 	FlueContext,

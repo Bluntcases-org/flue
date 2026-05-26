@@ -58,6 +58,27 @@ describe('Node build plugin', () => {
 		}
 	}, 15000);
 
+	it('builds attributed Markdown imports as text through the production Node graph', async () => {
+		const root = createFixtureRoot('flue-vite-node-markdown-');
+		fs.mkdirSync(path.join(root, 'workflows'));
+		fs.mkdirSync(path.join(root, 'instructions'));
+		fs.writeFileSync(path.join(root, 'instructions', 'proposal.md'), '# Proposal\n\nWrite carefully.\n');
+		fs.writeFileSync(
+			path.join(root, 'workflows', 'inspect.ts'),
+			`import instructions from '../instructions/proposal.md' with { type: 'markdown' };\nexport const route = async (_c, next) => next();\nexport async function run() { return { instructions }; }\n`,
+		);
+		await build({ root, target: 'node' });
+
+		const { child, port } = await startGeneratedServer(root);
+		try {
+			const response = await fetch(`http://localhost:${port}/workflows/inspect?wait=result`, { method: 'POST' });
+			expect(response.status).toBe(200);
+			expect(await response.json()).toMatchObject({ result: { instructions: '# Proposal\n\nWrite carefully.\n' } });
+		} finally {
+			child.kill('SIGTERM');
+		}
+	}, 15000);
+
 	it('builds imported Agent Skills as references through the production Node graph', async () => {
 		const root = createFixtureRoot('flue-vite-node-skill-');
 		fs.mkdirSync(path.join(root, 'workflows'));
