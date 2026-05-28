@@ -1,5 +1,5 @@
 // Prompt copied to the user's clipboard by the "Copy Prompt" CTA in the hero.
-export const COPY_PROMPT = `fetch https://flueframework.com/start.md to create a new agent`;
+export const COPY_PROMPT = `Read https://flueframework.com/start.md then help create my first agent...`;
 
 export const HERO = `import { createAgent, type AgentRouteHandler, type AgentWebSocketHandler } from '@flue/runtime';
 import { local } from '@flue/runtime/node';
