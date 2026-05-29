@@ -4,11 +4,13 @@ description: What an AI agent actually is, why a model alone isn't one, and what
 lastReviewedAt: 2026-05-29
 ---
 
-Ask ten people what an "AI agent" is and you'll get ten answers: a chatbot, a clever prompt, a workflow, a model with tools. The most useful definition turns out to be the simplest one: **An agent is a large language model (LLM) running inside a harness.** 
+Ask ten people what an "AI agent" is and you'll get ten answers: a chatbot, a clever prompt, a workflow, a model with tools. But none of these fully capture it.
 
-The model is the part that you're probably already familiar with: GPT 5.5, Opus 4.8, etc. So let's spend some time on the other half: the harness. The harness is what the LLM uses to interact with the rest of the world and drive itself towards completing the tasks you give it. This is what makes a model useful for real work, and it's essential to building autonomous agents and workflows.
+Our preferred definition of an agent is: **a large language model (LLM) running inside a harness.**  The model is the part that you're probably already familiar with: GPT 5.5, Opus 4.8, etc. So let's spend some time on the other half of the equation.
 
-Flue ships a programmable TypeScript agent harness out of the box. It was the first framework built entirely around this architecture, and we think it's where agents are headed.
+The harness is what the LLM uses to interact with the rest of the world and drive itself towards completing the tasks you give it. This is what makes a model useful for real work, and it's essential to building autonomous agents and workflows. Without a harness, you're stuck hooking up different LLM API calls yourself in a way that limits true autonomy.
+
+Flue ships a programmable TypeScript agent harness out of the box. It was the first framework built entirely around the harness, because we are strong believers in this architecture and what it unlocks.
 
 ## What is a harness?
 
@@ -16,14 +18,13 @@ A language model does just one thing: it takes text (and sometimes images) in an
 
 Each piece of the harness exists to give the agent new abilities and focus:
 
-- **We want the agent to keep its work** — so we give it a *filesystem*: a workspace to read and write, somewhere to offload material too big for its context, and a place to leave notes it can return to later.
-- **We want the agent to act, not just describe** — so we give it *tools*, and especially a general-purpose one like a shell. Rather than pre-building a tool for every possible action, you hand the model a computer and let it figure out the rest.
-- **We want the agent to act safely** — so those actions run in a *sandbox*: an isolated, disposable environment with sensible defaults already installed, where a mistake can't reach anything it shouldn't.
-- **We want the agent to know things it wasn't trained on** — so the harness gives it *memory* and *retrieval*: files it reads on startup and updates as it learns, plus ways to look up current information.
-- **We want the agent to stay sharp across long work** — so the harness does *context engineering*: summarizing history before the window fills, and revealing detailed instructions only when a task actually calls for them.
-- **We want the agent to do more than one thing at a time** — so it can hand focused work off to *subagents* and pull the results back together.
+- **We want the agent to keep its work** — so we give it a *filesystem.*
+- **We want the agent to act, not just describe** — so we give it *tools.*
+- **We want the agent to act safely** — so those actions run in a *sandbox.*
+- **We want the agent to stay sharp across long work** — so we give it *context.*
+- **We want the agent to do more than one thing at a time** — so we created  *subagents.*
 
-Flue's built-in agent harness gives you all of these pieces in TypeScript, ready to run on the deployment target of your choice:
+Flue's built-in agent harness gives you all of these pieces in TypeScript, ready to power your agents and run on the deployment target of your choice:
 
 ```ts 
 // Example: .flue/agents/triage.ts
@@ -39,7 +40,7 @@ export default createAgent(() => ({
 }));
 ```
 
-Building an agent is really about building up the context that you provide your agent — choosing the model, instructions, tools, skills, and environment it runs in.
+Building an agent is really less about coding and more about building up the context that you provide your agent — choosing the model, instructions, tools, skills, and environment it runs in.
 
 ## Building autonomous agents
 
