@@ -161,6 +161,14 @@ function streamReplayThenTail(opts: ReplayThenTailOptions): Response {
 
 			const write = (event: FlueEvent) => {
 				if (closed) return;
+				if (
+					typeof event.eventIndex === 'number' &&
+					lastSentIndex !== undefined &&
+					event.eventIndex <= lastSentIndex
+				) {
+					if (event.type === 'run_end') close();
+					return;
+				}
 				try {
 					controller.enqueue(encoder.encode(encodeSseEvent(event)));
 				} catch {
@@ -182,7 +190,6 @@ function streamReplayThenTail(opts: ReplayThenTailOptions): Response {
 						runId,
 						fromIndex,
 						write,
-						getBuffer: () => buffer,
 						drainBuffer: () => {
 							const drained = buffer;
 							buffer = [];
@@ -223,7 +230,6 @@ interface ReplayPhaseOptions {
 	runId: string;
 	fromIndex: number | undefined;
 	write: (event: FlueEvent) => void;
-	getBuffer: () => FlueEvent[];
 	drainBuffer: () => FlueEvent[];
 	getBufferOverflowed: () => boolean;
 	resetBufferOverflowed: () => void;
@@ -263,14 +269,6 @@ async function runReplayPhase(opts: ReplayPhaseOptions): Promise<void> {
 
 	const buffered = drainBuffer();
 	for (const event of buffered) {
-		const lastSent = getLastSentIndex();
-		if (
-			typeof event.eventIndex === 'number' &&
-			lastSent !== undefined &&
-			event.eventIndex <= lastSent
-		) {
-			continue;
-		}
 		write(event);
 	}
 
@@ -356,9 +354,9 @@ function parseEventIndex(value: string | null): number | undefined {
  * Malformed values are ignored — equivalent to no header.
  */
 function parseLastEventId(value: string | null): number | undefined {
-	if (!value) return undefined;
-	const parsed = Number.parseInt(value, 10);
-	if (!Number.isFinite(parsed) || parsed < 0) return undefined;
+	if (!value || !/^\d+$/.test(value)) return undefined;
+	const parsed = Number(value);
+	if (!Number.isSafeInteger(parsed)) return undefined;
 	return parsed;
 }
 
