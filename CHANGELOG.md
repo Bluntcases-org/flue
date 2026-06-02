@@ -6,14 +6,11 @@
 
 - **Move application routing imports out of `@flue/runtime/app`.** Import `flue`, `admin`, and `Fetchable` from `@flue/runtime/routing`. Import provider APIs and `observe` from `@flue/runtime`, and Workers AI binding types from `@flue/runtime/cloudflare`. Rename the `ProviderSettings` type to `ProviderConfiguration`.
 - **Check your authored source directory.** Flue now selects exactly one source directory in priority order: `.flue/`, `src/`, then the project root. If your project already has a `src/` directory, move root-level agents and workflows into the selected source directory so Flue continues to discover them.
-- **Use provider IDs consistently.** Model values use `provider-id/model-id`. `registerProvider(providerId, ...)` no longer accepts a separate `provider` override, `configureProvider(providerId, ...)` uses the same ID, and binding-backed `cloudflare/...` models now report provider ID `cloudflare`. Prompt responses now expose `model: { provider, id }`.
-- **Pass at most one `--env` file.** `flue build`, `flue dev`, `flue run`, and `flue connect` reject repeated `--env` flags. Combine values into one file or use shell environment overrides.
-- **Own Cloudflare Durable Object migrations in your project Wrangler config.** Flue still generates classes and bindings, but no longer appends migrations automatically. Before upgrading an existing deployment, copy its complete ordered `flue-class-*` migration history from the previously generated `.flue-vite.wrangler.jsonc` or built `wrangler.json` into the project-root Wrangler config. Keep deployed tags unchanged, and append a uniquely tagged `new_sqlite_classes` entry whenever you add an agent or workflow class.
-- **Retry interrupted Cloudflare workflows explicitly.** Flue no longer starts a replacement workflow run automatically after an interruption. The interrupted run is recorded as failed; invoke the workflow again when retrying is appropriate. Restart-link fields and their legacy OpenTelemetry attributes were removed.
-- **Clear or migrate persisted beta session state before upgrading.** Session and dispatch records from earlier beta releases are rejected rather than resumed with the new record shape.
-- **Configure SDK mount paths through `baseUrl`.** Its pathname is now used for public HTTP, SSE, and WebSocket routes. Remove `websocketBasePath`; keep `adminBasePath` only for an independent admin mount.
-- **Wait for active operations before deleting sessions.** `session.delete()` and `harness.sessions.delete()` now reject while the selected session has an active operation.
-- **Import faux-provider test helpers directly from Pi.** Import `registerFauxProvider(...)`, `fauxAssistantMessage(...)`, `fauxText(...)`, and `fauxToolCall(...)` from `@earendil-works/pi-ai` instead of `@flue/runtime`.
+- **Cloudflare: Own Cloudflare Durable Object migrations in your project Wrangler config.** Flue still generates classes and bindings, but no longer appends migrations automatically. Before upgrading an existing deployment, copy its complete ordered `flue-class-*` migration history from the previously generated `.flue-vite.wrangler.jsonc` or built `wrangler.json` into the project-root Wrangler config. Keep deployed tags unchanged, and append a uniquely tagged `new_sqlite_classes` entry whenever you add an agent or workflow class.
+- **Workflows: Retry interrupted Cloudflare workflows explicitly.** Flue no longer starts a replacement workflow run automatically after an interruption. The interrupted run is recorded as failed; invoke the workflow again when retrying is appropriate. Restart-link fields and their legacy OpenTelemetry attributes were removed.
+- **Agents: Clear or migrate persisted beta session state before upgrading.** Session and dispatch records from earlier beta releases are rejected rather than resumed with the new record shape. This does not apply to Flue workflows.
+- **Providers: Use provider IDs consistently.** Model values use `provider-id/model-id`. `registerProvider(providerId, ...)` no longer accepts a separate `provider` override, `configureProvider(providerId, ...)` uses the same ID, and binding-backed `cloudflare/...` models now report provider ID `cloudflare`. Prompt responses now expose `model: { provider, id }`.
+- **SDK: Configure SDK mount paths through `baseUrl`.** Its pathname is now used for public HTTP, SSE, and WebSocket routes. Remove `websocketBasePath`; keep `adminBasePath` only for an independent admin mount.
 
 ### New Features
 
@@ -32,6 +29,10 @@
 - `observe()` subscribers now receive isolated event snapshots, and rejected async callbacks no longer interrupt runtime execution.
 - Improved Cloudflare upgrade safety, local development diagnostics, and handling for unusual session names.
 - Fixed cwd scoping for created agents using Node `local()` sandboxes.
+- Pass at most one `--env` file. `flue build`, `flue dev`, `flue run`, and `flue connect` reject repeated `--env` flags. Combine values into one file or use shell environment overrides.
+- `session.delete()` and `harness.sessions.delete()` now reject while the selected session has an active operation.
+- Testing: Import `registerFauxProvider(...)`, `fauxAssistantMessage(...)`, `fauxText(...)`, and `fauxToolCall(...)` from `@earendil-works/pi-ai` instead of `@flue/runtime`.
+
 
 ## 0.8.1 - 2026-05-28
 
