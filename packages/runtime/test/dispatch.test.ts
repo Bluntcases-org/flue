@@ -1,7 +1,10 @@
-import type { AgentMessage } from '@earendil-works/pi-agent-core';
+import {
+	type FauxProviderRegistration,
+	fauxAssistantMessage,
+	registerFauxProvider,
+} from '@earendil-works/pi-ai';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createAgent } from '../src/agent-definition.ts';
-import { Harness } from '../src/harness.ts';
 import { dispatch, observe } from '../src/index.ts';
 import {
 	configureFlueRuntime,
@@ -15,8 +18,11 @@ import {
 import type { AgentConfig, FlueHarness, FlueSession } from '../src/types.ts';
 import { createNoopSessionEnv } from './fixtures/session-env.ts';
 
+const providers: FauxProviderRegistration[] = [];
+
 afterEach(() => {
 	resetFlueRuntimeForTests();
+	for (const provider of providers.splice(0)) provider.unregister();
 });
 
 describe('dispatch()', () => {
@@ -409,31 +415,43 @@ describe('dispatched session processing', () => {
 		expect(contextDispatchIds).toEqual(['dispatch:no-run-history']);
 	});
 
-	// TODO(RUNTIME-27): Migrate these retry tests to a stable generated-runtime boundary.
 	it('avoids repeating model processing when the same dispatch id is retried before the session advances', async () => {
-		const store = new InMemorySessionStore();
-		const harness = new Harness(
-			'guild:retry-idempotent',
-			'default',
-			testAgentConfig(),
-			createNoopSessionEnv({ cwd: '/' }),
-			store,
-		);
-		const session = await harness.session('case:retry-idempotent');
-		const agent = Reflect.get(session, 'harness') as {
-			state: { messages: AgentMessage[] };
-			continue: () => Promise<void>;
-			waitForIdle: () => Promise<void>;
-		};
+		const provider = createProvider();
 		let modelProcessingCount = 0;
-		agent.continue = async () => {
-			modelProcessingCount += 1;
-			agent.state.messages.push(assistantMessage('processed idempotently'));
-		};
-		agent.waitForIdle = async () => {};
-		const dispatchedSession = session as FlueSession & {
-			processDispatchInput(input: DispatchInput): PromiseLike<unknown>;
-		};
+		provider.setResponses([
+			() => {
+				modelProcessingCount += 1;
+				return fauxAssistantMessage('processed idempotently');
+			},
+		]);
+		const store = new InMemorySessionStore();
+		const save = vi.spyOn(store, 'save');
+		const processor = createAgentDispatchProcessor({
+			agents: {
+				moderator: createAgent(() => ({
+					model: `${provider.getModel().provider}/${provider.getModel().id}`,
+				})),
+			},
+			createContext: (id, runId, payload, req, initialEventIndex, dispatchId) =>
+				createFlueContext({
+					id,
+					runId,
+					dispatchId,
+					payload,
+					env: {},
+					req,
+					initialEventIndex,
+					agentConfig: {
+						systemPrompt: '',
+						skills: {},
+						subagents: {},
+						model: undefined,
+						resolveModel: () => provider.getModel(),
+					},
+					createDefaultEnv: async () => createNoopSessionEnv({ cwd: '/' }),
+					defaultStore: store,
+				}),
+		});
 		const input: DispatchInput = {
 			dispatchId: 'dispatch:retry-idempotent',
 			agent: 'moderator',
@@ -443,12 +461,10 @@ describe('dispatched session processing', () => {
 			acceptedAt: '2026-06-01T00:00:00.000Z',
 		};
 
-		await dispatchedSession.processDispatchInput(input);
-		await dispatchedSession.processDispatchInput(input);
+		await processor.process(input);
+		await processor.process(input);
 
-		const data = await store.load(
-			'agent-session:["guild:retry-idempotent","default","case:retry-idempotent"]',
-		);
+		const data = save.mock.calls.at(-1)?.[1];
 		expect(modelProcessingCount).toBe(1);
 		expect(
 			data?.entries.filter((entry) => entry.type === 'message' && entry.message.role === 'user'),
@@ -460,27 +476,38 @@ describe('dispatched session processing', () => {
 	});
 
 	it('rejects a retried dispatch when later user input has already advanced the session', async () => {
+		const provider = createProvider();
+		provider.setResponses([
+			fauxAssistantMessage('processed before advancement'),
+			fauxAssistantMessage('processed later input'),
+		]);
 		const store = new InMemorySessionStore();
-		const harness = new Harness(
-			'guild:retry-advanced',
-			'default',
-			testAgentConfig(),
-			createNoopSessionEnv({ cwd: '/' }),
-			store,
-		);
-		const session = await harness.session('case:retry-advanced');
-		const agent = Reflect.get(session, 'harness') as {
-			state: { messages: AgentMessage[] };
-			continue: () => Promise<void>;
-			waitForIdle: () => Promise<void>;
-		};
-		agent.continue = async () => {
-			agent.state.messages.push(assistantMessage('processed before advancement'));
-		};
-		agent.waitForIdle = async () => {};
-		const dispatchedSession = session as FlueSession & {
-			processDispatchInput(input: DispatchInput): PromiseLike<unknown>;
-		};
+		const processor = createAgentDispatchProcessor({
+			agents: {
+				moderator: createAgent(() => ({
+					model: `${provider.getModel().provider}/${provider.getModel().id}`,
+				})),
+			},
+			createContext: (id, runId, payload, req, initialEventIndex, dispatchId) =>
+				createFlueContext({
+					id,
+					runId,
+					dispatchId,
+					payload,
+					env: {},
+					req,
+					initialEventIndex,
+					agentConfig: {
+						systemPrompt: '',
+						skills: {},
+						subagents: {},
+						model: undefined,
+						resolveModel: () => provider.getModel(),
+					},
+					createDefaultEnv: async () => createNoopSessionEnv({ cwd: '/' }),
+					defaultStore: store,
+				}),
+		});
 		const input: DispatchInput = {
 			dispatchId: 'dispatch:retry-advanced',
 			agent: 'moderator',
@@ -490,8 +517,8 @@ describe('dispatched session processing', () => {
 			acceptedAt: '2026-06-01T00:00:00.000Z',
 		};
 
-		await dispatchedSession.processDispatchInput(input);
-		await dispatchedSession.processDispatchInput({
+		await processor.process(input);
+		await processor.process({
 			dispatchId: 'dispatch:retry-advanced:later',
 			agent: 'moderator',
 			id: 'guild:retry-advanced',
@@ -500,7 +527,7 @@ describe('dispatched session processing', () => {
 			acceptedAt: '2026-06-01T00:00:01.000Z',
 		});
 
-		await expect(dispatchedSession.processDispatchInput(input)).rejects.toThrow(
+		await expect(processor.process(input)).rejects.toThrow(
 			'Cannot recover dispatched input after the session has advanced',
 		);
 	});
@@ -538,18 +565,8 @@ function testAgentConfig(): AgentConfig {
 	};
 }
 
-function assistantMessage(text: string): AgentMessage {
-	return {
-		role: 'assistant',
-		content: [{ type: 'text', text }],
-		usage: {
-			input: 0,
-			output: 0,
-			cacheRead: 0,
-			cacheWrite: 0,
-			totalTokens: 0,
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-		},
-		timestamp: Date.now(),
-	} as AgentMessage;
+function createProvider(): FauxProviderRegistration {
+	const provider = registerFauxProvider({ provider: `dispatch-test-${crypto.randomUUID()}` });
+	providers.push(provider);
+	return provider;
 }
