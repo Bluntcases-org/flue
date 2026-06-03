@@ -13,7 +13,7 @@ import {
 
 export interface OpenTelemetryObserverOptions {
 	tracer?: Tracer;
-	captureContent?: boolean;
+	sanitize?: (event: FlueEvent) => FlueEvent | undefined;
 	resolveRootContext?: (event: FlueEvent, ctx: FlueContext) => Context | undefined;
 }
 
@@ -21,7 +21,7 @@ export function createOpenTelemetryObserver(
 	options: OpenTelemetryObserverOptions = {},
 ): FlueEventSubscriber {
 	const tracer = options.tracer ?? trace.getTracer('@flue/opentelemetry');
-	const captureContent = options.captureContent === true;
+	const sanitize = options.sanitize;
 	const resolveRootContext = options.resolveRootContext;
 	const runs = new Map<string, Span>();
 	const recoveryHandledRuns = new Set<string>();
@@ -34,6 +34,7 @@ export function createOpenTelemetryObserver(
 	return (event, ctx) => {
 		const time = timestamp(event);
 		if (event.type === 'run_start') {
+			const exportedEvent = sanitizeEvent(sanitize, event);
 			runs.set(
 				event.runId,
 				startSpan(tracer, `flue.workflow ${event.workflowName}`, undefined, event, ctx, resolveRootContext, {
@@ -42,7 +43,7 @@ export function createOpenTelemetryObserver(
 					attributes: {
 						...identifiers(event),
 						'flue.workflow.name': event.workflowName,
-						...(captureContent ? contentAttribute('flue.workflow.payload', event.payload) : {}),
+						...contentAttribute('flue.workflow.payload', exportedEvent?.payload),
 					},
 				}),
 			);
@@ -85,6 +86,7 @@ export function createOpenTelemetryObserver(
 			return;
 		}
 		if (event.type === 'task_start') {
+			const exportedEvent = sanitizeEvent(sanitize, event);
 			const parent = operationSpan(event, operations) ?? workflowSpan(event, runs);
 			tasks.set(
 				event.taskId,
@@ -93,8 +95,8 @@ export function createOpenTelemetryObserver(
 					attributes: {
 						...identifiers(event),
 						...(event.agent ? { 'flue.task.agent': event.agent } : {}),
-						...(captureContent && event.cwd ? { 'flue.task.cwd': event.cwd } : {}),
-						...(captureContent ? { 'flue.task.prompt': event.prompt } : {}),
+						...(exportedEvent?.cwd ? { 'flue.task.cwd': exportedEvent.cwd } : {}),
+						...contentAttribute('flue.task.prompt', exportedEvent?.prompt),
 					},
 				}),
 			);
@@ -116,6 +118,7 @@ export function createOpenTelemetryObserver(
 			return;
 		}
 		if (event.type === 'turn_request') {
+			const exportedEvent = sanitizeEvent(sanitize, event);
 			const parent =
 				event.purpose === 'agent'
 					? (operationSpan(event, operations) ?? workflowSpan(event, runs))
@@ -134,13 +137,14 @@ export function createOpenTelemetryObserver(
 						'gen_ai.request.model': event.model,
 						'flue.provider.api': event.api,
 						...(event.reasoning ? { 'flue.reasoning': event.reasoning } : {}),
-						...(captureContent ? contentAttribute('flue.turn.input', event.input) : {}),
+						...contentAttribute('flue.turn.input', exportedEvent?.input),
 					},
 				}),
 			);
 			return;
 		}
 		if (event.type === 'tool_start') {
+			const exportedEvent = sanitizeEvent(sanitize, event);
 			const parent =
 				(event.turnId ? turns.get(event.turnId) : undefined) ??
 				operationSpan(event, operations) ??
@@ -153,7 +157,7 @@ export function createOpenTelemetryObserver(
 						...identifiers(event),
 						'flue.tool.name': event.toolName,
 						'flue.tool.call_id': event.toolCallId,
-						...(captureContent ? contentAttribute('flue.tool.arguments', event.args) : {}),
+						...contentAttribute('flue.tool.arguments', exportedEvent?.args),
 					},
 				}),
 			);
@@ -162,15 +166,17 @@ export function createOpenTelemetryObserver(
 		if (event.type === 'tool_call') {
 			const span = tools.get(toolKey(event));
 			if (!span) return;
+			const exportedEvent = sanitizeEvent(sanitize, event);
 			span.setAttribute('flue.duration_ms', event.durationMs);
-			if (captureContent) setContentAttribute(span, 'flue.tool.result', event.result);
-			complete(span, event.isError, event.isError ? 'Tool call failed.' : undefined, time);
+			setContentAttribute(span, 'flue.tool.result', exportedEvent?.result);
+			complete(span, event.isError, exportedEvent?.result, 'Tool call failed.', time);
 			tools.delete(toolKey(event));
 			return;
 		}
 		if (event.type === 'turn') {
 			const span = turns.get(event.turnId);
 			if (!span) return;
+			const exportedEvent = sanitizeEvent(sanitize, event);
 			span.setAttributes({
 				'flue.duration_ms': event.durationMs,
 				...(event.model ? { 'gen_ai.response.model': event.model } : {}),
@@ -179,8 +185,8 @@ export function createOpenTelemetryObserver(
 				...(event.stopReason ? { 'gen_ai.response.finish_reasons': [event.stopReason] } : {}),
 				...usageAttributes(event.usage),
 			});
-			if (captureContent) setContentAttribute(span, 'flue.turn.output', event.output);
-			complete(span, event.isError, event.error, time);
+			setContentAttribute(span, 'flue.turn.output', exportedEvent?.output);
+			complete(span, event.isError, exportedEvent?.error, 'Model turn failed.', time);
 			turns.delete(event.turnId);
 			return;
 		}
@@ -200,14 +206,10 @@ export function createOpenTelemetryObserver(
 		if (event.type === 'task') {
 			const span = tasks.get(event.taskId);
 			if (!span) return;
+			const exportedEvent = sanitizeEvent(sanitize, event);
 			span.setAttribute('flue.duration_ms', event.durationMs);
-			if (captureContent) setContentAttribute(span, 'flue.task.result', event.result);
-			complete(
-				span,
-				event.isError,
-				event.isError ? (captureContent ? event.result : 'Task failed.') : undefined,
-				time,
-			);
+			setContentAttribute(span, 'flue.task.result', exportedEvent?.result);
+			complete(span, event.isError, exportedEvent?.result, 'Task failed.', time);
 			tasks.delete(event.taskId);
 			return;
 		}
@@ -217,16 +219,13 @@ export function createOpenTelemetryObserver(
 				operationSpan(event, operations) ??
 				workflowSpan(event, runs);
 			if (!span) return;
+			const exportedEvent = sanitizeEvent(sanitize, event);
 			span.addEvent(
 				'flue.log',
 				{
 					'flue.log.level': event.level,
-					...(captureContent
-						? {
-								'flue.log.message': event.message,
-								...contentAttribute('flue.log.attributes', event.attributes),
-							}
-						: {}),
+					...contentAttribute('flue.log.message', exportedEvent?.message),
+					...contentAttribute('flue.log.attributes', exportedEvent?.attributes),
 				},
 				time,
 			);
@@ -235,12 +234,13 @@ export function createOpenTelemetryObserver(
 		if (event.type === 'operation') {
 			const span = operations.get(event.operationId);
 			if (!span) return;
+			const exportedEvent = sanitizeEvent(sanitize, event);
 			span.setAttributes({
 				'flue.duration_ms': event.durationMs,
 				...usageAttributes(event.usage, 'flue.operation.usage'),
 			});
-			if (captureContent) setContentAttribute(span, 'flue.operation.result', event.result);
-			complete(span, event.isError, event.error, time);
+			setContentAttribute(span, 'flue.operation.result', exportedEvent?.result);
+			complete(span, event.isError, exportedEvent?.error, 'Operation failed.', time);
 			operations.delete(event.operationId);
 			const key = compactionKey(event);
 			const compaction = compactions.get(key);
@@ -257,14 +257,15 @@ export function createOpenTelemetryObserver(
 		if (event.type === 'run_end') {
 			const span = runs.get(event.runId);
 			if (!span) return;
+			const exportedEvent = sanitizeEvent(sanitize, event);
 			span.setAttribute(
 				recoveryHandledRuns.has(event.runId)
 					? 'flue.workflow.total_duration_ms'
 					: 'flue.duration_ms',
 				event.durationMs,
 			);
-			if (captureContent) setContentAttribute(span, 'flue.workflow.result', event.result);
-			complete(span, event.isError, event.error, time);
+			setContentAttribute(span, 'flue.workflow.result', exportedEvent?.result);
+			complete(span, event.isError, exportedEvent?.error, 'Workflow run failed.', time);
 			runs.delete(event.runId);
 			recoveryHandledRuns.delete(event.runId);
 		}
@@ -333,6 +334,18 @@ function usageAttributes(
 	};
 }
 
+function sanitizeEvent<TEvent extends FlueEvent>(
+	sanitize: OpenTelemetryObserverOptions['sanitize'],
+	event: TEvent,
+): TEvent | undefined {
+	try {
+		return sanitize?.({ ...event }) as TEvent | undefined;
+	} catch (error) {
+		console.error('[flue:opentelemetry] sanitizer failed:', error);
+		return undefined;
+	}
+}
+
 function contentAttribute(name: string, value: unknown): Attributes {
 	if (value === undefined) return {};
 	return { [name]: typeof value === 'string' ? value : safeJson(value) };
@@ -343,9 +356,15 @@ function setContentAttribute(span: Span, name: string, value: unknown): void {
 	if (Object.keys(attributes).length > 0) span.setAttributes(attributes);
 }
 
-function complete(span: Span, isError: boolean, error: unknown, time: Date): void {
+function complete(
+	span: Span,
+	isError: boolean,
+	exportedError: unknown,
+	defaultMessage: string,
+	time: Date,
+): void {
 	if (isError) {
-		const message = errorMessage(error);
+		const message = exportedError === undefined ? defaultMessage : errorMessage(exportedError);
 		span.setStatus({ code: SpanStatusCode.ERROR, message });
 		if (message) span.recordException(message);
 	}

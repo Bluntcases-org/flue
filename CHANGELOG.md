@@ -4,6 +4,7 @@
 
 ### Breaking Changes
 
+- **OpenTelemetry: Replace `captureContent` with explicit sanitization.** `createOpenTelemetryObserver(...)` now exports metadata and generic failure messages by default. To export content, replace `captureContent: true` with an application-owned `sanitize(event)` callback that returns a sanitized event, or intentionally return the original event for unsanitized local debugging.
 - **Agents: Clear or migrate persisted beta session state before upgrading.** Session records now persist one opaque `aff_<ULID>` provider-affinity key instead of deriving affinity from agent instance, harness, and session names. This keeps prompt-cache and routing-affinity identifiers bounded and distinct for nested tasks. Existing version-4 beta session records are rejected; storage keys are unchanged.
 
 ### Fixes & Other Changes

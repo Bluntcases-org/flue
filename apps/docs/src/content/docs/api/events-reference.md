@@ -30,6 +30,8 @@ import {
 
 Runtime-emitted events receive a per-context `eventIndex` and `timestamp`. Applicable events may also carry harness and session names, generated operation and turn ids, task correlation, and parent-session correlation. Persisted workflow events always carry `runId` and `eventIndex`; together they are the immutable persisted identity and SSE resume cursor for one workflow event. Attached-agent streams and `observe(...)` are live observation surfaces, not durable workflow history, so their indexes provide per-context ordering rather than durable identity.
 
+Runtime events can contain payloads, prompts, system instructions, reasoning-bearing messages, image bytes, logs, tool arguments, tool results, and terminal errors. Apply an exporter-local sanitization policy before forwarding events to an external service.
+
 ### Lifecycle events
 
 | Event         | Meaning                                                                                                         |

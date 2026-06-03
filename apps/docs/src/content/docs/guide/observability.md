@@ -79,7 +79,7 @@ An operation is the useful finite boundary for agent activity, such as prompting
 
 When an operation is slow or unexpectedly expensive, its nested activity can provide the explanation. One prompt operation may include multiple model turns or tool calls. Model turns expose latency, token usage, and cost; tool activity shows where the agent spent time or encountered an error.
 
-Callbacks registered with `observe(...)` are invoked while Flue emits activity and receive isolated JSON snapshots. Keep them lightweight: filter events, record metrics, or enqueue exporter work rather than performing blocking work in the callback. Returned promises are observed for rejection but are not awaited. In a distributed deployment, each running application context observes the activity it handles; send telemetry to an external backend if it needs to be aggregated across instances.
+Callbacks registered with `observe(...)` are invoked while Flue emits activity and receive isolated JSON snapshots. These runtime events are content-bearing: depending on the event, they can include payloads, prompts, model messages, image bytes, logs, tool values, and errors. Workflow history also persists events where run-store persistence succeeds. Keep callbacks lightweight and apply an exporter-local sanitization policy before forwarding events externally. Returned promises are observed for rejection but are not awaited. In a distributed deployment, each running application context observes the activity it handles; send telemetry to an external backend if it needs to be aggregated across instances.
 
 ## Export telemetry safely
 
@@ -103,9 +103,11 @@ The adapter turns workflow runs, agent operations, model turns, tools, delegated
 
 Workflow and standalone operation spans start as independent roots by default. To attach them beneath application-owned spans, pass `resolveRootContext` to `createOpenTelemetryObserver(...)`. The resolver runs only when a Flue span has no tracked Flue parent; return `undefined` to preserve root behavior selectively. Dispatched input does not carry trace context automatically, so resolve any dispatched parent from application-owned correlation state.
 
+The adapter exports metadata and generic failure messages by default. To export content, pass an application-owned `sanitize(event)` callback. It receives a shallow event copy; return a sanitized event to export its supported content values, or return `undefined` to omit content from that event. Passing `sanitize: (event) => event` intentionally exports unsanitized content and is useful only when the configured exporter is appropriate for that data.
+
 Start with signals that describe outcomes: failed workflows, explicit application error logs, slow operations, and completed model usage. A model turn or tool call may fail before an agent recovers, so treating every nested error as an incident can create noisy alerts.
 
-Telemetry can include sensitive application and model data, including workflow payloads, log attributes, prompts, output, and tool arguments or results. Prefer exporting timing, error, token, and cost metadata unless content is necessary for your investigation. If you enable content capture in an exporter or write your own observer, redact secrets and personal data before sending events to an external service.
+Telemetry can include sensitive application and model data, including workflow payloads, terminal errors, log attributes, prompts, output, reasoning-bearing content, image bytes, and tool arguments or results. Prefer exporting timing, failure state, token, and cost metadata unless content is necessary for your investigation. If you export content or write your own observer, redact secrets and personal data before sending events to an external service.
 
 ## Next steps
 

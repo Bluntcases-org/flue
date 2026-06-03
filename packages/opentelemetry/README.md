@@ -53,12 +53,26 @@ The resolver runs only when a Flue span has no tracked Flue parent. Return `unde
 
 ## Sensitive content
 
-By default, spans contain identifiers, terminal error messages, durations, model/provider attributes, and token/cost metadata only. They do not contain workflow payloads/results, model input/output, tool arguments/results, task prompts/results, or log content.
+By default, spans contain identifiers, durations, model/provider attributes, token/cost metadata, log levels, and generic failure messages only. They do not contain detailed terminal errors, workflow payloads/results, model input/output, tool arguments/results, task prompts/results, or log content.
 
-To explicitly send those values to the configured exporter:
+To export content, provide an application-owned sanitizer. It receives a shallow copy of each content-bearing Flue event. Return a sanitized event to export its supported content values, or return `undefined` to omit content from that event:
 
 ```ts
-observe(createOpenTelemetryObserver({ captureContent: true }));
+observe(
+  createOpenTelemetryObserver({
+    sanitize(event) {
+      if (event.type !== 'log') return undefined;
+
+      return {
+        ...event,
+        message: redactLogMessage(event.message),
+        attributes: redactLogAttributes(event.attributes),
+      };
+    },
+  }),
+);
 ```
 
-Review exported data retention and redaction requirements before enabling content capture.
+The adapter retains the original event for span lifecycle correlation. If you modify nested values, clone the paths you change rather than mutating the original nested objects.
+
+For local debugging with intentionally unsanitized data, pass `sanitize: (event) => event`. This can export workflow payloads/results, detailed errors, model-visible messages including system prompts, reasoning-bearing content and image bytes, log content, tool arguments/results, task prompts/results, and task working directories. Review exporter retention and access requirements before enabling it. Metadata such as ids and session names may also be sensitive if your application embeds customer data in them.
