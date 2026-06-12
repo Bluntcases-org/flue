@@ -8,6 +8,7 @@ export {
 	FlueError,
 	ModelNotConfiguredError,
 	OperationFailedError,
+	ProviderRegistrationError,
 	SessionAlreadyExistsError,
 	SessionBusyError,
 	SessionDeletedError,
@@ -34,7 +35,6 @@ export type {
 	RunStatus,
 } from './runtime/run-store.ts';
 export {
-	configureProvider,
 	type HttpProviderRegistration,
 	type ProviderRegistration,
 	registerApiProvider,
@@ -85,7 +85,6 @@ export type {
 	PromptResponse,
 	PromptResultResponse,
 	PromptUsage,
-	ProviderConfiguration,
 	SandboxFactory,
 	SessionData,
 	SessionEnv,

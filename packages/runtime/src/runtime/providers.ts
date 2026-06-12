@@ -3,13 +3,14 @@
 import {
 	type Api,
 	getModel,
+	getModels,
 	type KnownProvider,
 	type Model,
 	registerApiProvider as piRegisterApiProvider,
 } from '@earendil-works/pi-ai';
 import type { CloudflareGatewayOptions } from '../cloudflare/gateway.ts';
 import { CLOUDFLARE_AI_BINDING_API } from '../cloudflare-model.ts';
-import type { ProviderConfiguration } from '../types.ts';
+import { ProviderRegistrationError } from '../errors.ts';
 
 // ─── Public types ───────────────────────────────────────────────────────────
 
@@ -33,30 +34,49 @@ export type ProviderRegistration = HttpProviderRegistration | CloudflareAIBindin
 
 /** Register an HTTP-backed provider ID with {@link registerProvider}. */
 export interface HttpProviderRegistration {
-	api: Api;
-	/** Endpoint root, e.g. `'https://api.anthropic.com/v1'`. */
-	baseUrl: string;
+	/**
+	 * Wire protocol used for requests. Required for provider IDs the catalog
+	 * doesn't know; defaults to the catalog protocol for catalog provider IDs.
+	 */
+	api?: Api;
+	/**
+	 * Endpoint root, e.g. `'https://api.anthropic.com/v1'`. Required for
+	 * provider IDs the catalog doesn't know; defaults to the catalog endpoint
+	 * for catalog provider IDs.
+	 */
+	baseUrl?: string;
 	/**
 	 * Optional API key. Propagated to pi-ai via the harness's per-call
 	 * `getApiKey(providerId)` callback. Falls back to whatever pi-ai's normal
 	 * env-var lookup produces if unset.
 	 */
 	apiKey?: string;
-	/** Optional default headers for every outgoing request. */
+	/**
+	 * Headers sent on every outgoing request. Merged per key over the catalog
+	 * model's headers when the provider ID hydrates from the catalog; this
+	 * registration's values win on conflict.
+	 */
 	headers?: Record<string, string>;
 	/**
 	 * Default `contextWindow` (in tokens) for every model resolved through
-	 * this registration. Overridden per-model via {@link models}. Unset is
-	 * `0`, which the runtime treats as "unknown".
+	 * this registration. Overridden per-model via {@link models}. Unset falls
+	 * back to the catalog value for catalog models, then to `0`, which the
+	 * runtime treats as "unknown".
 	 */
 	contextWindow?: number;
 	/**
 	 * Default `maxTokens` for every model resolved through this registration.
-	 * Overridden per-model via {@link models}. Unset is `0`.
+	 * Overridden per-model via {@link models}. Unset falls back to the catalog
+	 * value for catalog models, then to `0`.
 	 */
 	maxTokens?: number;
 	/** Per-model overrides for {@link contextWindow} and {@link maxTokens}, keyed by model ID. */
 	models?: Record<string, { contextWindow?: number; maxTokens?: number }>;
+	/**
+	 * Sends `store: true` for OpenAI Responses API providers. Only enable when
+	 * you need OpenAI-hosted item persistence and accept its retention policy.
+	 */
+	storeResponses?: boolean;
 }
 
 /** Register a Workers AI binding-backed provider ID with {@link registerProvider}. */
@@ -99,16 +119,40 @@ const providersById = new Map<string, ProviderRegistration>();
 /**
  * Register a model provider keyed by the provider ID used in model specifiers.
  *
- * Last-write-wins. On Cloudflare, registering the `cloudflare` provider ID in
- * `app.ts` takes precedence over the generated Workers AI binding default.
+ * When the provider ID is a catalog provider, models resolve from the catalog
+ * — preserving metadata such as cost, context window, and wire protocol —
+ * with this call's options layered on top. That makes transport overrides
+ * one call:
+ *
+ * ```ts
+ * registerProvider('anthropic', {
+ *   baseUrl: 'https://gateway.example.com/anthropic',
+ *   apiKey: process.env.GATEWAY_KEY,
+ * });
+ * ```
+ *
+ * Provider IDs the catalog doesn't know are registered from scratch and must
+ * supply `api` and `baseUrl`.
+ *
+ * Each call REPLACES the provider ID's previous registration; calls do not
+ * accumulate. The effective settings are always the catalog defaults (when
+ * the ID is known) plus the latest call's options. On Cloudflare, registering
+ * the `cloudflare` provider ID in `app.ts` takes precedence over the
+ * generated Workers AI binding default.
  */
 export function registerProvider(providerId: string, registration: ProviderRegistration): void {
+	if (
+		!isCloudflareBindingRegistration(registration) &&
+		(registration.api === undefined || registration.baseUrl === undefined) &&
+		getModels(providerId as KnownProvider).length === 0
+	) {
+		throw new ProviderRegistrationError({ providerId });
+	}
 	providersById.set(providerId, registration);
 }
 
 export function resetProvidersForTests(): void {
 	providersById.clear();
-	providerSettingsById.clear();
 }
 
 /** Whether a provider ID has already been registered. */
@@ -121,6 +165,13 @@ export function getRegisteredApiKey(providerId: string): string | undefined {
 	const registration = providersById.get(providerId);
 	if (!registration || isCloudflareBindingRegistration(registration)) return undefined;
 	return registration.apiKey;
+}
+
+/** Whether a registered provider opted into OpenAI-hosted response storage. */
+export function getRegisteredStoreResponses(providerId: string): boolean {
+	const registration = providersById.get(providerId);
+	if (!registration || isCloudflareBindingRegistration(registration)) return false;
+	return registration.storeResponses === true;
 }
 
 /**
@@ -139,38 +190,6 @@ export function getRegisteredApiKey(providerId: string): string | undefined {
  * bookkeeping.
  */
 export const registerApiProvider = piRegisterApiProvider;
-
-// ─── Provider override registry ─────────────────────────────────────────────
-//
-// Transport-level settings keyed by provider ID. This keeps built-in catalog
-// metadata intact while letting apps patch auth/endpoints.
-
-const providerSettingsById = new Map<string, ProviderConfiguration>();
-
-/**
- * Configure transport-level settings on an existing provider while preserving
- * its resolved Model metadata (cost, context window, token limits, etc.).
- * Repeated calls for the same provider ID replace the previous settings object.
- *
- * ```ts
- * import { configureProvider } from '@flue/runtime';
- *
- * configureProvider('anthropic', {
- *   baseUrl: 'https://gateway.example.com/anthropic',
- *   apiKey: process.env.GATEWAY_KEY,
- * });
- * ```
- *
- * Keyed by provider ID. Last-write-wins.
- */
-export function configureProvider(providerId: string, settings: ProviderConfiguration): void {
-	providerSettingsById.set(providerId, settings);
-}
-
-/** Internal read accessor for provider settings. */
-export function getProviderConfiguration(providerId: string): ProviderConfiguration | undefined {
-	return providerSettingsById.get(providerId);
-}
 
 // ─── Model binding extension ────────────────────────────────────────────────
 
@@ -223,8 +242,9 @@ export function resolveRegisteredModel(
 /**
  * Construct a pi-ai Model from a registered provider template. Binding
  * registrations hydrate metadata from pi-ai's `cloudflare-workers-ai`
- * catalog; HTTP registrations supply their own metadata, with any unset
- * fields defaulting to zero.
+ * catalog; HTTP registrations hydrate from the provider ID's own catalog
+ * entry when one exists, with the registration's options layered on top and
+ * any still-unset metadata defaulting to zero.
  */
 function buildModelFromRegistration(
 	providerId: string,
@@ -238,18 +258,7 @@ function buildModelFromRegistration(
 		const catalog = getModel('cloudflare-workers-ai' as KnownProvider, modelId as never);
 		const base: Model<Api> = catalog
 			? { ...catalog, api: CLOUDFLARE_AI_BINDING_API, provider: providerId, baseUrl: '' }
-			: {
-					id: modelId,
-					name: modelId,
-					api: CLOUDFLARE_AI_BINDING_API,
-					provider: providerId,
-					baseUrl: '',
-					reasoning: false,
-					input: ['text'],
-					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-					contextWindow: 0,
-					maxTokens: 0,
-				};
+			: zeroMetadataModel(providerId, modelId, CLOUDFLARE_AI_BINDING_API, '');
 		// Resolve the documented tri-state: omitted routes through Cloudflare's
 		// default AI Gateway, `false` opts out, an options object replaces the
 		// default.
@@ -258,17 +267,58 @@ function buildModelFromRegistration(
 		return attachModelBinding(base, registration.binding, gateway);
 	}
 
+	// Hydrate from the catalog when the provider ID is known. For a known
+	// provider whose catalog doesn't list this model ID (e.g. a gateway
+	// exposing a brand-new model), provider-level transport facts still
+	// hydrate from the provider's other catalog entries.
+	const catalog = getModel(providerId as KnownProvider, modelId as never) as
+		| Model<Api>
+		| undefined;
+	const providerDefaults = catalog ?? getModels(providerId as KnownProvider)[0];
+	const api = registration.api ?? providerDefaults?.api;
+	const baseUrl = registration.baseUrl ?? providerDefaults?.baseUrl;
+	if (api === undefined || baseUrl === undefined) {
+		// Unreachable: registerProvider() rejects non-catalog registrations
+		// that omit api/baseUrl.
+		throw new ProviderRegistrationError({ providerId });
+	}
+
+	const base = catalog ?? zeroMetadataModel(providerId, modelId, api, baseUrl);
+	const headers =
+		base.headers || registration.headers
+			? { ...base.headers, ...registration.headers }
+			: undefined;
+	return {
+		...base,
+		api,
+		provider: providerId,
+		baseUrl,
+		headers,
+		contextWindow:
+			registration.models?.[modelId]?.contextWindow ??
+			registration.contextWindow ??
+			base.contextWindow,
+		maxTokens: registration.models?.[modelId]?.maxTokens ?? registration.maxTokens ?? base.maxTokens,
+	};
+}
+
+/** Zero-metadata Model literal for ids no catalog knows. */
+function zeroMetadataModel(
+	providerId: string,
+	modelId: string,
+	api: Api,
+	baseUrl: string,
+): Model<Api> {
 	return {
 		id: modelId,
 		name: modelId,
-		api: registration.api,
+		api,
 		provider: providerId,
-		baseUrl: registration.baseUrl,
+		baseUrl,
 		reasoning: false,
 		input: ['text'],
 		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-		contextWindow: registration.models?.[modelId]?.contextWindow ?? registration.contextWindow ?? 0,
-		maxTokens: registration.models?.[modelId]?.maxTokens ?? registration.maxTokens ?? 0,
-		headers: registration.headers,
+		contextWindow: 0,
+		maxTokens: 0,
 	};
 }

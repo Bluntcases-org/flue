@@ -301,23 +301,6 @@ export interface DurabilityConfig {
 	timeoutMs?: number;
 }
 
-// ─── Provider Runtime Settings ──────────────────────────────────────────────
-
-/** Per-provider transport settings accepted by `configureProvider(...)`. */
-export interface ProviderConfiguration {
-	/** Provider endpoint used by built-in models or registered providers. */
-	baseUrl?: string;
-	/** Headers merged into the resolved model's provider-level headers. */
-	headers?: Record<string, string>;
-	/** API key returned to the underlying harness runtime for this provider. */
-	apiKey?: string;
-	/**
-	 * Sends `store: true` for OpenAI Responses API providers. Only enable when
-	 * you need OpenAI-hosted item persistence and accept its retention policy.
-	 */
-	storeResponses?: boolean;
-}
-
 // ─── Agent Config (internal, passed to the harness at runtime) ──────────────
 
 export interface AgentConfig {

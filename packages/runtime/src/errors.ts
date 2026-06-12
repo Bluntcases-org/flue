@@ -496,6 +496,21 @@ export class SkillNotRegisteredError extends FlueError {
 	}
 }
 
+export class ProviderRegistrationError extends FlueError {
+	constructor({ providerId }: { providerId: string }) {
+		super({
+			type: 'invalid_provider_registration',
+			message: `Provider "${providerId}" cannot be registered without \`api\` and \`baseUrl\`.`,
+			details: `"${providerId}" is not a catalog provider, so its registration must say which wire protocol and endpoint to use.`,
+			dev:
+				'Pass `api` and `baseUrl` in the registerProvider() options. They are only optional ' +
+				'when the provider id is a built-in catalog provider, in which case the registration ' +
+				'hydrates from the catalog.',
+			meta: { providerId },
+		});
+	}
+}
+
 export class ModelNotConfiguredError extends FlueError {
 	constructor({ callSite }: { callSite: string }) {
 		super({

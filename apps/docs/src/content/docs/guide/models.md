@@ -93,15 +93,15 @@ Cloudflare provides several ways to reach models from a Flue application. Choose
 
 ### Built-in provider overrides
 
-Use `configureProvider(...)` in `src/app.ts` when a built-in provider should retain its known model catalog but send requests through application-specific transport configuration, such as an AI gateway or proxy.
+Use `registerProvider(...)` in `src/app.ts` when a built-in provider should retain its known model catalog but send requests through application-specific transport configuration, such as an AI gateway or proxy. Registering a built-in provider ID preserves its catalog metadata — cost, context window, and wire protocol — and layers your options on top.
 
 ```ts title="src/app.ts"
-import { configureProvider } from '@flue/runtime';
+import { registerProvider } from '@flue/runtime';
 import { flue } from '@flue/runtime/routing';
 import { Hono } from 'hono';
 
 if (process.env.ANTHROPIC_GATEWAY_URL) {
-  configureProvider('anthropic', {
+  registerProvider('anthropic', {
     baseUrl: process.env.ANTHROPIC_GATEWAY_URL,
     apiKey: process.env.ANTHROPIC_API_KEY,
   });
@@ -113,11 +113,11 @@ app.route('/', flue());
 export default app;
 ```
 
-A provider override can change its endpoint, API key, or headers without changing the provider ID used in your model specifiers. It can also opt into hosted response persistence for supported OpenAI Responses API providers. Keep this runtime setup in `app.ts` rather than repeating it in agents or individual operations.
+A provider override can change its endpoint, API key, or headers without changing the provider ID used in your model specifiers. It can also opt into hosted response persistence for supported OpenAI Responses API providers. Each `registerProvider(...)` call replaces the previous registration for that provider ID; the effective settings are always the catalog defaults plus the latest call's options. Keep this runtime setup in `app.ts` rather than repeating it in agents or individual operations.
 
 ### Custom providers
 
-Use `registerProvider(...)` in `src/app.ts` when you want to connect Flue to a model provider that is not built in. Registering a provider assigns it a provider ID, which you can then use in model specifiers throughout your application.
+Use `registerProvider(...)` in `src/app.ts` when you want to connect Flue to a model provider that is not built in. Registering a provider assigns it a provider ID, which you can then use in model specifiers throughout your application. Provider IDs outside the built-in catalog must supply `api` and `baseUrl`.
 
 For example, you can register a local Ollama server through its OpenAI-compatible endpoint:
 

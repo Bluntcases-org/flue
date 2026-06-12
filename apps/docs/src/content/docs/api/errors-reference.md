@@ -84,23 +84,24 @@ class FlueError extends Error {
 
 The catchable base class for framework-thrown runtime failures, exported from `@flue/runtime`. Application code distinguishes Flue failures from arbitrary errors with `instanceof FlueError`, then narrows with the concrete subclasses below or the stable `type` field. Message, `details`, and `dev` strings are human-readable prose, not API.
 
-### Session errors
+### Runtime errors
 
-Harness and session operations reject with typed `FlueError` subclasses, all importable from `@flue/runtime`:
+Harness and session operations, and runtime provider registration, reject with typed `FlueError` subclasses, all importable from `@flue/runtime`:
 
-| Class                       | `type`                   | Thrown when                                                                               |
-| --------------------------- | ------------------------ | ----------------------------------------------------------------------------------------- |
-| `SessionNotFoundError`      | `session_not_found`      | `sessions.get()` targets a session that does not exist.                                   |
-| `SessionAlreadyExistsError` | `session_already_exists` | `sessions.create()` targets a session that already exists.                                |
-| `SessionBusyError`          | `session_busy`           | An operation starts, or deletion is requested, while another operation is running.        |
-| `SessionDeletedError`       | `session_deleted`        | An operation targets a deleted session.                                                   |
-| `SkillNotRegisteredError`   | `skill_not_registered`   | A skill call or activation names a skill that is not registered.                          |
-| `ModelNotConfiguredError`   | `model_not_configured`   | A model operation runs with no call-level or agent-level model configured.                |
-| `TaskDepthExceededError`    | `task_depth_exceeded`    | Nested `task()` delegation exceeds the supported depth.                                   |
-| `SubagentNotDeclaredError`  | `subagent_not_declared`  | `task()` names a subagent the agent does not declare.                                     |
-| `ToolNameConflictError`     | `tool_name_conflict`     | Custom or connector tool names collide with each other or with framework-reserved names.  |
-| `OperationFailedError`      | `operation_failed`       | An operation ran but did not complete successfully (for example, the model call errored). |
-| `SubmissionTimeoutError`    | `submission_timeout`     | A durable submission exceeded its configured processing timeout.                          |
+| Class                       | `type`                          | Thrown when                                                                               |
+| --------------------------- | ------------------------------- | ----------------------------------------------------------------------------------------- |
+| `SessionNotFoundError`      | `session_not_found`             | `sessions.get()` targets a session that does not exist.                                   |
+| `SessionAlreadyExistsError` | `session_already_exists`        | `sessions.create()` targets a session that already exists.                                |
+| `SessionBusyError`          | `session_busy`                  | An operation starts, or deletion is requested, while another operation is running.        |
+| `SessionDeletedError`       | `session_deleted`               | An operation targets a deleted session.                                                   |
+| `SkillNotRegisteredError`   | `skill_not_registered`          | A skill call or activation names a skill that is not registered.                          |
+| `ModelNotConfiguredError`   | `model_not_configured`          | A model operation runs with no call-level or agent-level model configured.                |
+| `TaskDepthExceededError`    | `task_depth_exceeded`           | Nested `task()` delegation exceeds the supported depth.                                   |
+| `SubagentNotDeclaredError`  | `subagent_not_declared`         | `task()` names a subagent the agent does not declare.                                     |
+| `ToolNameConflictError`     | `tool_name_conflict`            | Custom or connector tool names collide with each other or with framework-reserved names.  |
+| `OperationFailedError`      | `operation_failed`              | An operation ran but did not complete successfully (for example, the model call errored). |
+| `SubmissionTimeoutError`    | `submission_timeout`            | A durable submission exceeded its configured processing timeout.                          |
+| `ProviderRegistrationError` | `invalid_provider_registration` | `registerProvider()` targets a non-catalog provider id without `api` and `baseUrl`.       |
 
 When one of these errors escapes to an HTTP transport (for example, a synchronous `?wait=result` invocation), the response body carries the error's typed envelope with status `500` instead of the generic `internal_error` payload.
 

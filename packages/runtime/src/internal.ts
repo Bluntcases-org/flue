@@ -12,8 +12,8 @@ import { type Api, getModel, type KnownProvider, type Model } from '@earendil-wo
 
 export { Bash, InMemoryFs } from 'just-bash';
 
-import { getProviderConfiguration, resolveRegisteredModel } from './runtime/providers.ts';
-import type { ModelConfig, ProviderConfiguration } from './types.ts';
+import { resolveRegisteredModel } from './runtime/providers.ts';
+import type { ModelConfig } from './types.ts';
 
 export type { FlueContextConfig, FlueContextInternal } from './client.ts';
 export { createFlueContext } from './client.ts';
@@ -98,8 +98,9 @@ export { parseSkillMarkdown } from './skill-frontmatter.ts';
 
 /**
  * Resolve a `provider-id/model-id` model specifier to a pi-ai Model.
- * Registered provider IDs win over pi-ai's catalog; configured provider
- * settings patch the resolved Model.
+ * Registered provider IDs win over pi-ai's catalog; registrations for
+ * catalog provider IDs hydrate metadata from the catalog with the
+ * registration's options layered on top.
  */
 export function resolveModel(model: ModelConfig | undefined): Model<Api> | undefined {
 	if (model === false || model === undefined) return undefined;
@@ -125,7 +126,7 @@ export function resolveModel(model: ModelConfig | undefined): Model<Api> | undef
 					`was given. Use "${providerId}/<model-id>".`,
 			);
 		}
-		return applyProviderSettings(registered, getProviderConfiguration(providerId));
+		return registered;
 	}
 
 	// `getModel` is typed for literal model IDs; runtime strings are checked by
@@ -138,22 +139,5 @@ export function resolveModel(model: ModelConfig | undefined): Model<Api> | undef
 				`is not registered with @earendil-works/pi-ai or via registerProvider().`,
 		);
 	}
-	return applyProviderSettings(resolved, getProviderConfiguration(providerId));
-}
-
-function applyProviderSettings<TApi extends Api>(
-	model: Model<TApi>,
-	providerSettings: ProviderConfiguration | undefined,
-): Model<TApi> {
-	if (!providerSettings) return model;
-
-	const hasBaseUrl = providerSettings.baseUrl !== undefined;
-	const hasHeaders = providerSettings.headers !== undefined;
-	if (!hasBaseUrl && !hasHeaders) return model;
-
-	return {
-		...model,
-		baseUrl: providerSettings.baseUrl ?? model.baseUrl,
-		headers: hasHeaders ? { ...(model.headers ?? {}), ...providerSettings.headers } : model.headers,
-	};
+	return resolved;
 }

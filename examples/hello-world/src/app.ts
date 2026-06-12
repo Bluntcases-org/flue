@@ -1,5 +1,5 @@
 /** Example `app.ts`: compose a custom Hono app and runtime providers. */
-import { configureProvider, registerProvider } from '@flue/runtime';
+import { registerProvider } from '@flue/runtime';
 import { flue } from '@flue/runtime/routing';
 import { Hono } from 'hono';
 
@@ -14,9 +14,10 @@ registerProvider('lmstudio', {
 	baseUrl: 'http://localhost:1234/v1',
 });
 
-// Patch a built-in provider without replacing its catalog metadata.
+// Route a catalog provider through a gateway. Catalog metadata (cost,
+// context window, wire protocol) is preserved; these options layer on top.
 if (process.env.ANTHROPIC_GATEWAY_URL) {
-	configureProvider('anthropic', {
+	registerProvider('anthropic', {
 		baseUrl: process.env.ANTHROPIC_GATEWAY_URL,
 		apiKey: process.env.ANTHROPIC_API_KEY,
 	});

@@ -81,7 +81,7 @@ import { agentSubmissionDispatchInput } from './runtime/agent-submissions.ts';
 import { reconstructInterruptedStream, StreamChunkWriter } from './runtime/stream-chunks.ts';
 import type { DispatchInput } from './runtime/dispatch-queue.ts';
 import { generateOperationId, generateTurnId } from './runtime/ids.ts';
-import { getProviderConfiguration, getRegisteredApiKey } from './runtime/providers.ts';
+import { getRegisteredApiKey, getRegisteredStoreResponses } from './runtime/providers.ts';
 import { createFlueFs } from './sandbox.ts';
 import { SessionHistory, createUserContextMessage, renderSignalMessage } from './session-history.ts';
 import { childTaskSessionStorageKey } from './session-identity.ts';
@@ -1039,10 +1039,7 @@ export class Session implements FlueSession {
 	}
 
 	private getProviderApiKey(providerId: string): string | undefined {
-		// Explicit provider configuration overrides apiKeys carried by registered
-		// provider templates. Undefined falls through to pi-ai's env-var lookup.
-		const override = getProviderConfiguration(providerId)?.apiKey;
-		if (override !== undefined) return override;
+		// Undefined falls through to pi-ai's env-var lookup.
 		return getRegisteredApiKey(providerId);
 	}
 
@@ -1054,8 +1051,7 @@ export class Session implements FlueSession {
 		if (model.api !== 'openai-responses' && model.api !== 'azure-openai-responses') {
 			return undefined;
 		}
-		const settings = getProviderConfiguration(model.provider);
-		if (settings?.storeResponses !== true) {
+		if (!getRegisteredStoreResponses(model.provider)) {
 			return undefined;
 		}
 		return { ...(payload as Record<string, unknown>), store: true };

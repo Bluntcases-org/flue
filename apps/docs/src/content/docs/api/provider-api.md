@@ -1,6 +1,6 @@
 ---
 title: Provider API
-description: Configure built-in model providers and register custom provider integrations.
+description: Register custom model providers and override built-in provider transport.
 lastReviewedAt: 2026-05-31
 ---
 
@@ -10,42 +10,12 @@ The provider API configures model connection paths at runtime. Import ordinary p
 
 ```ts
 import {
-  configureProvider,
   registerApiProvider,
   registerProvider,
   type HttpProviderRegistration,
-  type ProviderConfiguration,
   type ProviderRegistration,
 } from '@flue/runtime';
 ```
-
-## `configureProvider()`
-
-```ts
-function configureProvider(providerId: string, settings: ProviderConfiguration): void;
-```
-
-Configures transport-level settings for an existing built-in or registered provider while preserving its resolved model metadata. The provider ID is the prefix used in model specifiers, such as `anthropic` in `anthropic/claude-sonnet-4-6`.
-
-Repeated calls for the same provider ID replace the previous settings object.
-
-### `ProviderConfiguration`
-
-```ts
-interface ProviderConfiguration {
-  baseUrl?: string;
-  headers?: Record<string, string>;
-  apiKey?: string;
-  storeResponses?: boolean;
-}
-```
-
-| Property         | Purpose                                                                                                                           |
-| ---------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `baseUrl`        | Override the provider endpoint.                                                                                                   |
-| `headers`        | Merge headers into the resolved model's provider-level headers.                                                                   |
-| `apiKey`         | Override the API key returned to the underlying model runtime.                                                                    |
-| `storeResponses` | Send `store: true` for OpenAI Responses API providers. Enable only when your application accepts the provider's retention policy. |
 
 ## `registerProvider()`
 
@@ -53,9 +23,18 @@ interface ProviderConfiguration {
 function registerProvider(providerId: string, registration: ProviderRegistration): void;
 ```
 
-Registers a model provider keyed by the provider ID used in model specifiers. Re-registering the same provider ID replaces its previous registration.
+Registers a model provider keyed by the provider ID used in model specifiers. The provider ID is the prefix used in model specifiers, such as `anthropic` in `anthropic/claude-sonnet-4-6`.
 
-For example, registering `ollama` makes model specifiers such as `ollama/llama3.1:8b` available to agents and operations.
+When the provider ID is a catalog provider, models resolve from the catalog — preserving metadata such as cost, context window, and wire protocol — with this call's options layered on top. That makes routing a built-in provider through a gateway one call:
+
+```ts
+registerProvider('anthropic', {
+  baseUrl: 'https://gateway.example.com/anthropic',
+  apiKey: process.env.GATEWAY_KEY,
+});
+```
+
+Provider IDs the catalog doesn't know are registered from scratch and must supply `api` and `baseUrl`. For example, registering `ollama` makes model specifiers such as `ollama/llama3.1:8b` available to agents and operations:
 
 ```ts
 registerProvider('ollama', {
@@ -63,6 +42,8 @@ registerProvider('ollama', {
   baseUrl: 'http://localhost:11434/v1',
 });
 ```
+
+Each call replaces the provider ID's previous registration; calls do not accumulate. The effective settings are always the catalog defaults (when the ID is known) plus the latest call's options.
 
 ### `ProviderRegistration`
 
@@ -76,8 +57,8 @@ Use an HTTP registration for ordinary URL-backed providers. Workers AI binding r
 
 ```ts
 interface HttpProviderRegistration {
-  api: Api;
-  baseUrl: string;
+  api?: Api;
+  baseUrl?: string;
   apiKey?: string;
   headers?: Record<string, string>;
   contextWindow?: number;
@@ -89,18 +70,22 @@ interface HttpProviderRegistration {
       maxTokens?: number;
     }
   >;
+  storeResponses?: boolean;
 }
 ```
 
-| Property        | Purpose                                                                                                                   |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `api`           | Wire protocol used for requests. Use a Pi-provided API slug or register one with `registerApiProvider()`.                 |
-| `baseUrl`       | Endpoint root, such as `https://api.anthropic.com/v1`.                                                                    |
-| `apiKey`        | Optional API key. When omitted, the underlying provider integration may use its normal environment-variable lookup.       |
-| `headers`       | Default headers for outgoing requests.                                                                                    |
-| `contextWindow` | Default context-window size for models resolved through this registration. Defaults to `0`, meaning unknown.              |
-| `maxTokens`     | Default output-token limit for models resolved through this registration. Defaults to `0`.                                |
-| `models`        | Per-model `contextWindow` and `maxTokens` overrides keyed by model ID. Per-model values override provider-level defaults. |
+| Property         | Purpose                                                                                                                                                                            |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `api`            | Wire protocol used for requests. Use a Pi-provided API slug or register one with `registerApiProvider()`. Required for non-catalog provider IDs; defaults to the catalog protocol. |
+| `baseUrl`        | Endpoint root, such as `https://api.anthropic.com/v1`. Required for non-catalog provider IDs; defaults to the catalog endpoint.                                                    |
+| `apiKey`         | Optional API key. When omitted, the underlying provider integration may use its normal environment-variable lookup.                                                                |
+| `headers`        | Headers sent on outgoing requests. Merged per key over the catalog model's headers when the provider ID hydrates from the catalog; the registration's values win on conflict.      |
+| `contextWindow`  | Default context-window size for models resolved through this registration. Falls back to the catalog value for catalog models, then to `0`, meaning unknown.                       |
+| `maxTokens`      | Default output-token limit for models resolved through this registration. Falls back to the catalog value for catalog models, then to `0`.                                         |
+| `models`         | Per-model `contextWindow` and `maxTokens` overrides keyed by model ID. Per-model values override provider-level defaults.                                                          |
+| `storeResponses` | Send `store: true` for OpenAI Responses API providers. Enable only when your application accepts the provider's retention policy.                                                  |
+
+Registering a non-catalog provider ID without `api` and `baseUrl` throws a `ProviderRegistrationError`.
 
 ## `registerApiProvider()`
 

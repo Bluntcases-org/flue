@@ -18,7 +18,6 @@ describe('package entrypoints', () => {
 		const runtime = await import('@flue/runtime');
 
 		expect(runtime).toMatchObject({
-			configureProvider: expect.any(Function),
 			connectMcpServer: expect.any(Function),
 			createAgent: expect.any(Function),
 			createSandboxSessionEnv: expect.any(Function),
