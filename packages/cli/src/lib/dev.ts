@@ -310,9 +310,10 @@ interface WatcherHandle {
  * Ignored:
  *   - The build output directory (`output`, defaults to `<root>/dist`).
  *     Critical to break the build → file-change → rebuild loop.
- *   - `node_modules/`, `.git/`, `.turbo/`
- *   - Dotfiles and dotdirs at the project root, with one exception: `.flue/`
- *     is allowed through only when it is the selected source directory.
+ *   - `node_modules/`
+ *   - Dotfiles and dot-directories (any path segment starting with `.`),
+ *     with one exception: `.flue/` is allowed through only when it is the
+ *     selected source directory.
  *   - Editor backup/swap suffixes
  */
 function createWatcher(options: WatcherOptions): WatcherHandle {
@@ -346,12 +347,10 @@ function createWatcher(options: WatcherOptions): WatcherHandle {
 		const parts = normalized.split('/');
 		for (const part of parts) {
 			if (part === 'node_modules') return true;
-			if (part === '.git') return true;
-			if (part === '.turbo') return true;
+			if (part.startsWith('.')) return true;
 		}
 		const base = parts[parts.length - 1] ?? '';
 		if (!base) return true;
-		if (base.startsWith('.')) return true;
 		if (base.endsWith('~') || base.endsWith('.swp') || base.endsWith('.swx')) return true;
 		return false;
 	};
