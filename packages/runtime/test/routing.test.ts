@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createFlueContext } from '../src/client.ts';
+import { ModelNotConfiguredError } from '../src/errors.ts';
 import { InMemoryRunStore } from '../src/node/run-store.ts';
 import { MAX_IMAGE_DATA_LENGTH } from '../src/persisted-images.ts';
 import { agentStreamPath } from '../src/runtime/event-stream-store.ts';
@@ -157,6 +158,49 @@ describe('flue()', () => {
 			streamUrl: 'http://localhost/api/agents/assistant/customer-123',
 			offset: '-1',
 		});
+	});
+
+	it('renders the typed error envelope when a session FlueError fails a synchronous agent POST', async () => {
+		const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+		configureFlueRuntime({
+			target: 'node',
+			manifest: {
+				agents: [{ name: 'assistant', transports: { http: true }, created: true }],
+			},
+			createAdmission: {
+				// Simulates the session surface failing the prompt (e.g. no model
+				// configured) — the typed envelope must reach the caller instead
+				// of an opaque internal_error.
+				assistant: () => async () => {
+					throw new ModelNotConfiguredError({ callSite: 'this prompt() call' });
+				},
+			},
+			createContext: createTestContext,
+			eventStreamStore: createTestEventStreamStore(),
+		});
+		const app = new Hono();
+		app.route('/api', flue());
+
+		try {
+			const response = await app.fetch(
+				new Request('http://localhost/api/agents/assistant/customer-123?wait=result', {
+					method: 'POST',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify({ message: 'hello' }),
+				}),
+			);
+
+			expect(response.status).toBe(500);
+			expect(await response.json()).toEqual({
+				error: {
+					type: 'model_not_configured',
+					message: 'No model is configured for this prompt() call.',
+					details: '',
+				},
+			});
+		} finally {
+			consoleError.mockRestore();
+		}
 	});
 
 	it('rejects an unknown wait value with invalid_request when an agent POST mistypes the query', async () => {

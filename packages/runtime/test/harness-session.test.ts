@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createAgent } from '../src/index.ts';
+import {
+	createAgent,
+	SessionAlreadyExistsError,
+	SessionBusyError,
+	SessionDeletedError,
+	SessionNotFoundError,
+} from '../src/index.ts';
 import { createFlueContext, type FlueContextConfig } from '../src/internal.ts';
 import type { FlueEvent, SessionData, SessionEnv, SessionStore } from '../src/types.ts';
 
@@ -222,9 +228,7 @@ describe('FlueHarness', () => {
 				createAgent(() => ({ model: false })),
 			);
 
-			await expect(harness.sessions.get('missing-review')).rejects.toThrow(
-				'[flue] Session "missing-review" does not exist in harness "default".',
-			);
+			await expect(harness.sessions.get('missing-review')).rejects.toThrow(SessionNotFoundError);
 			expect(store.peek('agent-session:["agent-instance","default","missing-review"]')).toBeNull();
 		});
 
@@ -235,9 +239,7 @@ describe('FlueHarness', () => {
 			);
 			await harness.session('review');
 
-			await expect(harness.sessions.create('review')).rejects.toThrow(
-				'[flue] Session "review" already exists in harness "default".',
-			);
+			await expect(harness.sessions.create('review')).rejects.toThrow(SessionAlreadyExistsError);
 		});
 
 		it('rejects reserved task names when ordinary session APIs receive an internal session name', async () => {
@@ -270,9 +272,7 @@ describe('FlueHarness', () => {
 			await harness.sessions.delete('review');
 
 			expect(store.peek('agent-session:["agent-instance","default","review"]')).toBeNull();
-			await expect(harness.sessions.get('review')).rejects.toThrow(
-				'[flue] Session "review" does not exist in harness "default".',
-			);
+			await expect(harness.sessions.get('review')).rejects.toThrow(SessionNotFoundError);
 		});
 
 		it('allows deletion when delete() targets an unknown name', async () => {
@@ -483,9 +483,7 @@ describe('FlueSession', () => {
 		await execStarted;
 
 		try {
-			await expect(session.delete()).rejects.toThrow(
-				'[flue] Session "review" cannot be deleted while shell is running. Wait for the active operation to finish before deleting the session.',
-			);
+			await expect(session.delete()).rejects.toThrow(SessionBusyError);
 			expect(store.deleteCalls).toEqual([]);
 		} finally {
 			releaseExec();
@@ -504,9 +502,7 @@ describe('FlueSession', () => {
 		const session = await harness.session('review');
 		await session.delete();
 
-		await expect(session.shell('printf late')).rejects.toThrow(
-			'[flue] Session "review" has been deleted.',
-		);
+		await expect(session.shell('printf late')).rejects.toThrow(SessionDeletedError);
 	});
 
 	it('wraps store deletion in one coordinated operation when an opened session is deleted', async () => {

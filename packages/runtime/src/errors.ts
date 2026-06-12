@@ -171,8 +171,13 @@ interface FlueErrorOptions {
  * Base class for every error Flue throws. Do not instantiate directly in
  * application code — extend it via a subclass below. If a use case isn't
  * covered, add a new subclass here rather than throwing a raw `FlueError`.
+ *
+ * Exported (and re-exported from the package root) as the catchable base:
+ * application code distinguishes Flue failures from arbitrary errors with
+ * `err instanceof FlueError`, then narrows via the concrete subclasses or
+ * the stable `type` field. Message strings are not API.
  */
-class FlueError extends Error {
+export class FlueError extends Error {
 	readonly type: string;
 	readonly details: string;
 	readonly dev: string;
@@ -403,6 +408,189 @@ export class PersistedSchemaVersionError extends FlueError {
 				: `The "schema_version" row in the flue_meta table is not a version this runtime recognizes. ` +
 					`Restore the database, or point the runtime at a different one.`,
 			meta: { storedVersion, supportedVersion },
+		});
+	}
+}
+
+// ─── Session error vocabulary ───────────────────────────────────────────────
+//
+// Non-HTTP errors thrown by the session surface: `harness.session()` /
+// `harness.sessions.*` and `session.prompt()` / `skill()` / `task()` /
+// `shell()` / `compact()` / `delete()`. Programmatic consumers (the primary
+// audience of these calls) distinguish failures with `instanceof` against the
+// classes re-exported from the package root. When one of these escapes to the
+// HTTP layer (e.g. a `?wait=result` prompt), `toHttpResponse` renders its
+// typed envelope with status 500 instead of an opaque `internal_error`.
+//
+// Aborted operations are NOT part of this vocabulary — they reject with a
+// standard `AbortError` (`DOMException`); see `abort.ts`.
+
+export class SessionNotFoundError extends FlueError {
+	constructor({ session, harness }: { session: string; harness: string }) {
+		super({
+			type: 'session_not_found',
+			message: `Session "${session}" does not exist in harness "${harness}".`,
+			details: 'Verify the session name is correct, or create the session first.',
+			dev: '`sessions.get()` never creates sessions. Use `harness.session(name)` to get-or-create, or `sessions.create(name)` to create explicitly.',
+		});
+	}
+}
+
+export class SessionAlreadyExistsError extends FlueError {
+	constructor({ session, harness }: { session: string; harness: string }) {
+		super({
+			type: 'session_already_exists',
+			message: `Session "${session}" already exists in harness "${harness}".`,
+			details: 'Choose a different session name, or open the existing session instead.',
+			dev: '`sessions.create()` requires an unused name. Use `harness.session(name)` to get-or-create.',
+		});
+	}
+}
+
+export class SessionBusyError extends FlueError {
+	constructor({ session, activeOperation }: { session: string; activeOperation: string }) {
+		super({
+			type: 'session_busy',
+			message: `Session "${session}" is busy running ${activeOperation}.`,
+			details:
+				'Wait for the active operation to finish before starting another operation or deleting the session.',
+			dev: 'Sessions run one operation at a time. Start another session for parallel conversation branches.',
+		});
+	}
+}
+
+export class SessionDeletedError extends FlueError {
+	constructor({ session }: { session: string }) {
+		super({
+			type: 'session_deleted',
+			message: `Session "${session}" has been deleted.`,
+			details: 'The session and its stored conversation no longer exist. Use a new session to continue.',
+			dev: '',
+		});
+	}
+}
+
+export class SkillNotRegisteredError extends FlueError {
+	constructor({
+		skill,
+		available,
+		skillsDir,
+	}: {
+		skill: string;
+		available: readonly string[];
+		skillsDir: string;
+	}) {
+		super({
+			type: 'skill_not_registered',
+			message: `Skill "${skill}" is not registered.`,
+			details: 'Verify the skill name is correct.',
+			dev:
+				`Available skills: ${formatList(available)}.\n` +
+				`Skills are discovered at init() time from ${skillsDir}/<name>/SKILL.md inside the ` +
+				`session's sandbox. If you expected "${skill}" to be there, make sure the SKILL.md file ` +
+				`exists at that path before calling init() — the default empty sandbox starts with no ` +
+				`files, so it has no skills unless you put them there.\n` +
+				`Packaged skills can be imported from SKILL.md with { type: 'skill' } and passed ` +
+				`directly to session.skill(skillReference).`,
+		});
+	}
+}
+
+export class ModelNotConfiguredError extends FlueError {
+	constructor({ callSite }: { callSite: string }) {
+		super({
+			type: 'model_not_configured',
+			message: `No model is configured for ${callSite}.`,
+			details: '',
+			dev: 'Pass `{ model: "provider-id/model-id" }` to the call, or configure a model on the agent definition.',
+		});
+	}
+}
+
+export class TaskDepthExceededError extends FlueError {
+	constructor({ maxDepth }: { maxDepth: number }) {
+		super({
+			type: 'task_depth_exceeded',
+			message: `Maximum task depth (${maxDepth}) exceeded.`,
+			details: 'The chain of delegated tasks is too deep.',
+			dev: 'Each task() delegation adds one level. Restructure the agents to delegate less deeply.',
+		});
+	}
+}
+
+export class SubagentNotDeclaredError extends FlueError {
+	constructor({ subagent, available }: { subagent: string; available: readonly string[] }) {
+		super({
+			type: 'subagent_not_declared',
+			message: `Subagent "${subagent}" is not declared.`,
+			details: 'Verify the subagent name is correct.',
+			dev:
+				`Available subagents: ${formatList(available)}.\n` +
+				'Declare subagents in the agent definition\'s `subagents` array.',
+		});
+	}
+}
+
+export class ToolNameConflictError extends FlueError {
+	constructor({
+		name,
+		conflict,
+		source,
+		reserved,
+	}: {
+		name: string;
+		conflict: 'reserved' | 'duplicate';
+		/** Where the conflicting tool came from: agent/call `tools` or a sandbox connector's `tools()`. */
+		source: 'custom' | 'connector';
+		reserved?: readonly string[];
+	}) {
+		const dev =
+			source === 'connector'
+				? conflict === 'reserved'
+					? `The sandbox connector's tools() returned "${name}", which the framework appends ` +
+						'automatically when appropriate; remove it from the connector.'
+					: `The sandbox connector's tools() returned the name "${name}" more than once; ` +
+						'connector tool names must be unique.'
+				: conflict === 'reserved'
+					? `Framework-reserved tool names: ${formatList(reserved ?? [])}. Rename the custom tool.`
+					: 'Rename one of the conflicting custom tools.';
+		super({
+			type: 'tool_name_conflict',
+			message:
+				conflict === 'reserved'
+					? `Tool name "${name}" is reserved by the framework.`
+					: `Duplicate tool name "${name}".`,
+			details: 'Tool names must be unique and must not use framework-reserved names.',
+			dev,
+		});
+	}
+}
+
+/**
+ * A session operation ran but did not complete successfully — the underlying
+ * model call errored, or a durable input could not be persisted or recovered.
+ * `reason` carries the underlying failure text; it is part of the message so
+ * logs and serialized events stay informative, but it is prose, not API.
+ */
+export class OperationFailedError extends FlueError {
+	constructor({ operation, reason }: { operation: string; reason: string }) {
+		super({
+			type: 'operation_failed',
+			message: `${operation} failed: ${reason}`,
+			details: '',
+			dev: '',
+		});
+	}
+}
+
+/** A durable submission exceeded its configured processing timeout. */
+export class SubmissionTimeoutError extends FlueError {
+	constructor() {
+		super({
+			type: 'submission_timeout',
+			message: 'Submission exceeded the configured timeout.',
+			details: 'The operation ran longer than the configured durability timeout.',
+			dev: 'The timeout is configured in minutes via the agent definition\'s `durability.timeout`.',
 		});
 	}
 }

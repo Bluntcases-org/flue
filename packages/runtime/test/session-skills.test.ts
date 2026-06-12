@@ -5,7 +5,7 @@ import {
 	registerFauxProvider,
 } from '@earendil-works/pi-ai';
 import { afterEach, describe, expect, it } from 'vitest';
-import { createAgent } from '../src/index.ts';
+import { createAgent, SkillNotRegisteredError } from '../src/index.ts';
 import { createFlueContext, InMemorySessionStore } from '../src/internal.ts';
 import type { PackagedSkillDirectory, SessionEnv, SkillReference } from '../src/types.ts';
 
@@ -558,9 +558,7 @@ describe('session.skill()', () => {
 		);
 		const session = await harness.session();
 
-		await expect(session.skill('review')).rejects.toThrow(
-			'[flue] Skill "review" not registered. Available: (none).',
-		);
+		await expect(session.skill('review')).rejects.toThrow(SkillNotRegisteredError);
 	});
 
 	it('rejects duplicate skill names when workspace discovery conflicts with an agent definition', async () => {

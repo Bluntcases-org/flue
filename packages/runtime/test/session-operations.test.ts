@@ -6,7 +6,15 @@ import {
 	registerFauxProvider,
 } from '@earendil-works/pi-ai';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createAgent, defineAgentProfile, defineTool, Type } from '../src/index.ts';
+import {
+	createAgent,
+	defineAgentProfile,
+	defineTool,
+	ModelNotConfiguredError,
+	SessionBusyError,
+	SubagentNotDeclaredError,
+	Type,
+} from '../src/index.ts';
 import { createFlueContext, InMemorySessionStore } from '../src/internal.ts';
 import { MAX_IMAGE_DATA_LENGTH } from '../src/persisted-images.ts';
 import type { SessionData, SessionEnv, SessionStore } from '../src/types.ts';
@@ -525,7 +533,7 @@ describe('session.prompt()', () => {
 		const session = await harness.session();
 
 		await expect(session.prompt('Review this workspace.')).rejects.toThrow(
-			'[flue] No model configured for this prompt() call. Pass `{ model: "provider-id/model-id" }` to this call or configure an agent model.',
+			ModelNotConfiguredError,
 		);
 	});
 
@@ -580,9 +588,7 @@ describe('session.prompt()', () => {
 		let firstResponse: Awaited<typeof first>;
 
 		try {
-			await expect(session.prompt('Start a second review.')).rejects.toThrow(
-				'[flue] Session "default" is already running prompt. Start another session for parallel conversation branches.',
-			);
+			await expect(session.prompt('Start a second review.')).rejects.toThrow(SessionBusyError);
 		} finally {
 			finishResponse();
 			firstResponse = await first;
@@ -668,7 +674,7 @@ describe('session.task()', () => {
 		const session = await harness.session();
 
 		await expect(session.task('Review the patch.', { agent: 'missing-reviewer' })).rejects.toThrow(
-			'[flue] Subagent "missing-reviewer" is not declared. Available: declared-reviewer.',
+			SubagentNotDeclaredError,
 		);
 		expect(provider.state.callCount).toBe(0);
 	});
@@ -875,7 +881,7 @@ describe('session.task()', () => {
 			role: 'toolResult',
 			toolName: 'task',
 			isError: true,
-			content: [{ type: 'text', text: '[flue] Maximum task depth (4) exceeded.' }],
+			content: [{ type: 'text', text: 'Maximum task depth (4) exceeded.' }],
 		});
 	});
 });

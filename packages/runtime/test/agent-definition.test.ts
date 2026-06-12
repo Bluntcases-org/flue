@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createAgent, defineAgentProfile, defineTool } from '../src/index.ts';
+import {
+	createAgent,
+	defineAgentProfile,
+	defineTool,
+	ModelNotConfiguredError,
+} from '../src/index.ts';
 import type { FlueContextConfig } from '../src/internal.ts';
 import { createFlueContext, InMemorySessionStore } from '../src/internal.ts';
 import type { AgentProfile, ToolDefinition } from '../src/types.ts';
@@ -150,13 +155,13 @@ describe('defineAgentProfile()', () => {
 		);
 		const session = await harness.session();
 
-		await expect(session.skill('profile_skill')).rejects.toThrow('No model configured');
-		await expect(session.skill('runtime_skill')).rejects.toThrow('No model configured');
+		await expect(session.skill('profile_skill')).rejects.toThrow(ModelNotConfiguredError);
+		await expect(session.skill('runtime_skill')).rejects.toThrow(ModelNotConfiguredError);
 		await expect(session.task('Delegate work.', { agent: 'profile_agent' })).rejects.toThrow(
-			'No model configured',
+			ModelNotConfiguredError,
 		);
 		await expect(session.task('Delegate work.', { agent: 'runtime_agent' })).rejects.toThrow(
-			'No model configured',
+			ModelNotConfiguredError,
 		);
 	});
 
@@ -176,7 +181,9 @@ describe('defineAgentProfile()', () => {
 		const harness = await createContext().init(createAgent(() => ({ profile, model: false })));
 		const session = await harness.session();
 
-		await expect(session.prompt('Answer without a model.')).rejects.toThrow('No model configured');
+		await expect(session.prompt('Answer without a model.')).rejects.toThrow(
+			ModelNotConfiguredError,
+		);
 	});
 
 	it('accepts valid durability config on a profile', () => {

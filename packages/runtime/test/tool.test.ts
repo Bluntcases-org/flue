@@ -5,7 +5,7 @@ import {
 	registerFauxProvider,
 } from '@earendil-works/pi-ai';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createAgent, defineTool, Type } from '../src/index.ts';
+import { createAgent, defineTool, ToolNameConflictError, Type } from '../src/index.ts';
 import { createFlueContext, InMemorySessionStore } from '../src/internal.ts';
 import type { SessionData, SessionStore } from '../src/types.ts';
 import { createNoopSessionEnv } from './fixtures/session-env.ts';
@@ -120,7 +120,7 @@ describe('custom tools', () => {
 					}),
 				],
 			}),
-		).rejects.toThrow('conflicts with a built-in tool');
+		).rejects.toThrow(ToolNameConflictError);
 	});
 
 	it('rejects a custom activate_skill tool because its name is framework-reserved', async () => {
@@ -137,7 +137,7 @@ describe('custom tools', () => {
 					}),
 				],
 			}),
-		).rejects.toThrow('conflicts with a built-in tool');
+		).rejects.toThrow(ToolNameConflictError);
 	});
 
 	it('rejects a custom finish tool because its name is reserved for result capture', async () => {
@@ -154,7 +154,7 @@ describe('custom tools', () => {
 					}),
 				],
 			}),
-		).rejects.toThrow('conflicts with a built-in tool');
+		).rejects.toThrow(ToolNameConflictError);
 	});
 
 	it('rejects duplicate custom tool names when an operation assembles its active tools', async () => {
@@ -185,7 +185,7 @@ describe('custom tools', () => {
 					}),
 				],
 			}),
-		).rejects.toThrow('Duplicate custom tool name "lookup"');
+		).rejects.toThrow(ToolNameConflictError);
 	});
 
 	it('exposes agent-level custom tools when a model operation begins', async () => {

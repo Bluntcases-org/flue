@@ -45,6 +45,17 @@ import {
 	shouldCompact,
 } from './compaction.ts';
 import { isWorkspaceSkill, skillsDirIn } from './context.ts';
+import {
+	ModelNotConfiguredError,
+	OperationFailedError,
+	SessionBusyError,
+	SessionDeletedError,
+	SkillNotRegisteredError,
+	SubagentNotDeclaredError,
+	SubmissionTimeoutError,
+	TaskDepthExceededError,
+	ToolNameConflictError,
+} from './errors.ts';
 import { IMAGE_DATA_OMITTED, redactEventImages } from './event-redaction.ts';
 import { assertImagesWithinLimit } from './persisted-images.ts';
 import {
@@ -985,10 +996,7 @@ export class Session implements FlueSession {
 		if (this.deleted) return Promise.resolve();
 		if (this.activeOperation) {
 			return Promise.reject(
-				new Error(
-					`[flue] Session "${this.name}" cannot be deleted while ${this.activeOperation} is running. ` +
-						'Wait for the active operation to finish before deleting the session.',
-				),
+				new SessionBusyError({ session: this.name, activeOperation: this.activeOperation }),
 			);
 		}
 		this.deleted = true;
@@ -1026,10 +1034,7 @@ export class Session implements FlueSession {
 	 */
 	private requireModel(model: Model<any> | undefined, callSite: string): Model<any> {
 		if (model) return model;
-		throw new Error(
-			`[flue] No model configured for ${callSite}. ` +
-				`Pass \`{ model: "provider-id/model-id" }\` to this call or configure an agent model.`,
-		);
+		throw new ModelNotConfiguredError({ callSite });
 	}
 
 	private getProviderApiKey(providerId: string): string | undefined {
@@ -1082,16 +1087,11 @@ export class Session implements FlueSession {
 	}
 
 	private throwMissingSkill(skill: string): never {
-		const available = Object.keys(this.config.skills).join(', ') || '(none)';
-		throw new Error(
-			`[flue] Skill "${skill}" not registered. Available: ${available}.\n\n` +
-				`Skills are discovered at init() time from ${skillsDirIn(this.env.cwd)}/<name>/SKILL.md ` +
-				`inside the session's sandbox. If you expected "${skill}" to be there, make sure ` +
-				`the SKILL.md file exists at that path before calling init() — the default ` +
-				`empty sandbox starts with no files, so it has no skills unless you put them there.\n\n` +
-				`Packaged skills can be imported from SKILL.md with { type: 'skill' } and passed directly ` +
-				`to session.skill(skillReference).`,
-		);
+		throw new SkillNotRegisteredError({
+			skill,
+			available: Object.keys(this.config.skills),
+			skillsDir: skillsDirIn(this.env.cwd),
+		});
 	}
 
 	// ─── Custom Tools ───────────────────────────────────────────────────────
@@ -1109,7 +1109,7 @@ export class Session implements FlueSession {
 				description: toolDef.description,
 				parameters: toolDef.parameters as any,
 				async execute(_toolCallId: string, params: unknown, signal?: AbortSignal) {
-					if (signal?.aborted) throw new Error('Operation aborted');
+					if (signal?.aborted) throw abortErrorFor(signal);
 					const resultText = await toolDef.execute(params as Record<string, any>, signal);
 					return {
 						content: [{ type: 'text' as const, text: resultText }],
@@ -1132,15 +1132,19 @@ export class Session implements FlueSession {
 		const names = new Set<string>();
 		for (const toolDef of tools) {
 			if (reserved.has(toolDef.name)) {
-				throw new Error(
-					`[flue] Custom tool "${toolDef.name}" conflicts with a built-in tool. ` +
-						`Built-in tools: ${[...reserved].join(', ')}`,
-				);
+				throw new ToolNameConflictError({
+					name: toolDef.name,
+					conflict: 'reserved',
+					source: 'custom',
+					reserved: [...reserved],
+				});
 			}
 			if (names.has(toolDef.name)) {
-				throw new Error(
-					`[flue] Duplicate custom tool name "${toolDef.name}". Tool names must be unique.`,
-				);
+				throw new ToolNameConflictError({
+					name: toolDef.name,
+					conflict: 'duplicate',
+					source: 'custom',
+				});
 			}
 			names.add(toolDef.name);
 		}
@@ -1220,16 +1224,18 @@ export class Session implements FlueSession {
 		const names = new Set<string>();
 		for (const tool of tools) {
 			if (tool.name === 'task' || tool.name === 'activate_skill') {
-				throw new Error(
-					`[flue] Sandbox connector tools() returned a tool named "${tool.name}", which is ` +
-						`framework-reserved. The framework appends \`${tool.name}\` automatically when appropriate; remove it from the connector.`,
-				);
+				throw new ToolNameConflictError({
+					name: tool.name,
+					conflict: 'reserved',
+					source: 'connector',
+				});
 			}
 			if (names.has(tool.name)) {
-				throw new Error(
-					`[flue] Sandbox connector tools() returned duplicate tool name "${tool.name}". ` +
-						'Connector tool names must be unique.',
-				);
+				throw new ToolNameConflictError({
+					name: tool.name,
+					conflict: 'duplicate',
+					source: 'connector',
+				});
 			}
 			names.add(tool.name);
 		}
@@ -1273,8 +1279,7 @@ export class Session implements FlueSession {
 		const subagents = this.config.subagents ?? {};
 		const subagent = subagents[name];
 		if (subagent) return subagent;
-		const available = Object.keys(subagents).join(', ') || '(none)';
-		throw new Error(`[flue] Subagent "${name}" is not declared. Available: ${available}.`);
+		throw new SubagentNotDeclaredError({ subagent: name, available: Object.keys(subagents) });
 	}
 
 	private async runTaskForTool(
@@ -1367,7 +1372,7 @@ export class Session implements FlueSession {
 			throw new Error('[flue] This session cannot create task sessions.');
 		}
 		if (this.taskDepth >= MAX_TASK_DEPTH) {
-			throw new Error(`[flue] Maximum task depth (${MAX_TASK_DEPTH}) exceeded.`);
+			throw new TaskDepthExceededError({ maxDepth: MAX_TASK_DEPTH });
 		}
 		// Reject oversized images before creating the child session so a
 		// rejected task() call stays side-effect-free.
@@ -1522,10 +1527,7 @@ export class Session implements FlueSession {
 	private async runExclusive<T>(operation: OperationKind, fn: () => Promise<T>): Promise<T> {
 		this.assertActive();
 		if (this.activeOperation) {
-			throw new Error(
-				`[flue] Session "${this.name}" is already running ${this.activeOperation}. ` +
-					'Start another session for parallel conversation branches.',
-			);
+			throw new SessionBusyError({ session: this.name, activeOperation: this.activeOperation });
 		}
 		this.activeOperation = operation;
 		try {
@@ -1549,7 +1551,7 @@ export class Session implements FlueSession {
 
 	private assertActive(): void {
 		if (this.deleted) {
-			throw new Error(`[flue] Session "${this.name}" has been deleted.`);
+			throw new SessionDeletedError({ session: this.name });
 		}
 	}
 
@@ -1697,7 +1699,7 @@ export class Session implements FlueSession {
 			// is covered by DO eviction + the attempt budget (Capability K), not this check.
 			// Preemptive in-turn watchdog is deferred to Capability L.
 			if (this.activeTimeoutAt !== undefined && Date.now() >= this.activeTimeoutAt) {
-				throw new Error('[flue] Submission exceeded configured timeout.');
+				throw new SubmissionTimeoutError();
 			}
 			try {
 				await start();
@@ -1982,7 +1984,7 @@ export class Session implements FlueSession {
 	private throwIfError(context: string): void {
 		const errorMsg = this.harness.state.errorMessage;
 		if (errorMsg) {
-			throw new Error(`[flue] ${context} failed: ${errorMsg}`);
+			throw new OperationFailedError({ operation: context, reason: errorMsg });
 		}
 	}
 
@@ -2084,8 +2086,6 @@ export class Session implements FlueSession {
 				}),
 			errorLabel: `dispatch(${input.dispatchId})`,
 			callSite: 'this dispatched input',
-			persistenceError: '[flue] Failed to persist dispatched input.',
-			recoveryError: '[flue] Cannot recover dispatched input after the session has advanced.',
 			onInputApplied: options?.onInputApplied,
 			submissionAttempt: options?.submissionAttempt,
 			journal: options?.journal,
@@ -2109,8 +2109,6 @@ export class Session implements FlueSession {
 				),
 			errorLabel: `direct(${input.submissionId})`,
 			callSite: 'this direct input',
-			persistenceError: '[flue] Failed to persist direct input.',
-			recoveryError: '[flue] Cannot recover direct input after the session has advanced.',
 			onInputApplied: options?.onInputApplied,
 			submissionAttempt: options?.submissionAttempt,
 			journal: options?.journal,
@@ -2138,8 +2136,6 @@ export class Session implements FlueSession {
 		timeoutAt?: number;
 		errorLabel: string;
 		callSite: string;
-		persistenceError: string;
-		recoveryError: string;
 		onInputApplied?: (durability: SubmissionDurability) => Promise<void> | void;
 		submissionAttempt?: import('./agent-execution-store.ts').SubmissionAttemptRef;
 		signal: AbortSignal;
@@ -2165,11 +2161,19 @@ export class Session implements FlueSession {
 						await this.save();
 						inputEntry = options.findInput();
 					}
-					if (!inputEntry) throw new Error(options.persistenceError);
+					if (!inputEntry) {
+						throw new OperationFailedError({
+							operation: options.errorLabel,
+							reason: 'the input could not be persisted',
+						});
+					}
 					await options.onInputApplied?.(durability);
 					const following = this.history.getActivePathSince(inputEntry.id);
 					if (following.some((entry) => entry.type === 'message' && entry.message.role === 'user')) {
-						throw new Error(options.recoveryError);
+						throw new OperationFailedError({
+							operation: options.errorLabel,
+							reason: 'the session advanced past this input before it completed',
+						});
 					}
 					const persistedAssistants = following.filter(
 						(entry): entry is MessageEntry =>
@@ -2201,7 +2205,7 @@ export class Session implements FlueSession {
 					// check lives in runModelTurnWithRecovery, but these preamble paths
 					// run before that loop is entered.
 					if (this.activeTimeoutAt !== undefined && Date.now() >= this.activeTimeoutAt) {
-						throw new Error('[flue] Submission exceeded configured timeout.');
+						throw new SubmissionTimeoutError();
 					}
 					if (assistant && overflow) {
 							this.rebuildHarnessContext();
@@ -2210,16 +2214,18 @@ export class Session implements FlueSession {
 								'[flue:compaction] Overflow detected, compacting and retrying...',
 							);
 							if (!(await this.runCompaction('overflow'))) {
-								throw new Error(
-									`[flue] ${options.errorLabel} failed: ${assistant.errorMessage ?? assistant.stopReason}`,
-								);
+								throw new OperationFailedError({
+									operation: options.errorLabel,
+									reason: assistant.errorMessage ?? assistant.stopReason,
+								});
 							}
 							this.internalLog('info', '[flue:compaction] Retrying after overflow recovery...');
 						} else if (assistant && isRetryableModelError(assistant)) {
 							if (!(await this.waitForTransientModelRetry(assistant, transientRetries))) {
-								throw new Error(
-									`[flue] ${options.errorLabel} failed: ${assistant.errorMessage ?? assistant.stopReason}`,
-								);
+								throw new OperationFailedError({
+									operation: options.errorLabel,
+									reason: assistant.errorMessage ?? assistant.stopReason,
+								});
 							}
 						}
 						await this.runModelTurnWithRecovery({
@@ -2229,9 +2235,10 @@ export class Session implements FlueSession {
 						});
 						this.throwIfError(options.errorLabel);
 					} else if (assistant.stopReason === 'error' || assistant.stopReason === 'aborted') {
-						throw new Error(
-							`[flue] ${options.errorLabel} failed: ${assistant.errorMessage ?? assistant.stopReason}`,
-						);
+						throw new OperationFailedError({
+							operation: options.errorLabel,
+							reason: assistant.errorMessage ?? assistant.stopReason,
+						});
 					}
 					return {
 						text: this.getAssistantText(),

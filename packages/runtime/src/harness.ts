@@ -3,6 +3,7 @@ import type { AgentSubmissionStore } from './agent-execution-store.ts';
 import { createCallHandle } from './abort.ts';
 import { formatBashResult } from './agent.ts';
 import { discoverSessionContext } from './context.ts';
+import { SessionAlreadyExistsError, SessionNotFoundError } from './errors.ts';
 import { generateSessionAffinityKey } from './runtime/ids.ts';
 import { createCwdSessionEnv, createFlueFs } from './sandbox.ts';
 import { type CreateTaskSessionOptions, deleteSessionTree, Session } from './session.ts';
@@ -136,9 +137,7 @@ export class Harness implements FlueHarness {
 		const open = this.openSessions.get(sessionName);
 		if (open) {
 			if (mode === 'create') {
-				throw new Error(
-					`[flue] Session "${sessionName}" already exists in harness "${this.name}".`,
-				);
+				throw new SessionAlreadyExistsError({ session: sessionName, harness: this.name });
 			}
 			return open;
 		}
@@ -146,10 +145,10 @@ export class Harness implements FlueHarness {
 		const storageKey = createSessionStorageKey(this.instanceId, this.name, sessionName);
 		const existingData = await this.store.load(storageKey);
 		if (mode === 'get' && !existingData) {
-			throw new Error(`[flue] Session "${sessionName}" does not exist in harness "${this.name}".`);
+			throw new SessionNotFoundError({ session: sessionName, harness: this.name });
 		}
 		if (mode === 'create' && existingData) {
-			throw new Error(`[flue] Session "${sessionName}" already exists in harness "${this.name}".`);
+			throw new SessionAlreadyExistsError({ session: sessionName, harness: this.name });
 		}
 
 		let data = existingData;

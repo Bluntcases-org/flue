@@ -4,7 +4,7 @@ import {
 	registerFauxProvider,
 } from '@earendil-works/pi-ai';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createAgent } from '../src/index.ts';
+import { createAgent, SessionBusyError } from '../src/index.ts';
 import { createFlueContext, InMemorySessionStore } from '../src/internal.ts';
 import type { FlueEvent } from '../src/types.ts';
 import { createNoopSessionEnv } from './fixtures/session-env.ts';
@@ -191,7 +191,7 @@ describe('session.compact()', () => {
 		await started;
 
 		try {
-			await expect(session.compact()).rejects.toThrow('already running prompt');
+			await expect(session.compact()).rejects.toThrow(SessionBusyError);
 		} finally {
 			releaseResponse();
 			await prompt;
