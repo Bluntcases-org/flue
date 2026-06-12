@@ -1,5 +1,6 @@
 import type { AgentTool, AgentToolResult } from '@earendil-works/pi-agent-core';
 import { type Static, Type } from '@earendil-works/pi-ai';
+import { composeTimeoutSignal } from './abort.ts';
 import type { AgentProfile, PackagedSkillDirectory, SessionEnv } from './types.ts';
 
 const MAX_READ_LINES = 2000;
@@ -235,11 +236,7 @@ function createBashTool(env: SessionEnv): AgentTool<typeof BashParams> {
 			// accept abort semantics; the model can only emit JSON, so it
 			// needs `params.timeout` and a recoverable shape on timeout.
 			const timeoutMs = typeof params.timeout === 'number' ? params.timeout * 1000 : undefined;
-			const timeoutSignal = timeoutMs !== undefined ? AbortSignal.timeout(timeoutMs) : undefined;
-			const execSignal =
-				signal && timeoutSignal
-					? AbortSignal.any([signal, timeoutSignal])
-					: (signal ?? timeoutSignal);
+			const { timeoutSignal, mergedSignal: execSignal } = composeTimeoutSignal(timeoutMs, signal);
 
 			const timedOut = () =>
 				formatBashResult(

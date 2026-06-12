@@ -22,6 +22,26 @@ export function abortErrorFor(signal: AbortSignal): Error {
 }
 
 /**
+ * Translate a millisecond deadline into an `AbortSignal` and compose it with
+ * the caller's signal. Single implementation of the timeout-to-signal
+ * cancellation composition shared by the LLM bash tool and the
+ * signal-translating `SessionEnv` adapters (bash factory, local).
+ *
+ * Returns both signals: callers that distinguish a recoverable timeout from
+ * a host abort (the bash tool's 124-shaped result) need `timeoutSignal` on
+ * its own; everything downstream gets `mergedSignal`.
+ */
+export function composeTimeoutSignal(
+	timeoutMs: number | undefined,
+	signal: AbortSignal | undefined,
+): { timeoutSignal: AbortSignal | undefined; mergedSignal: AbortSignal | undefined } {
+	const timeoutSignal = typeof timeoutMs === 'number' ? AbortSignal.timeout(timeoutMs) : undefined;
+	const mergedSignal =
+		signal && timeoutSignal ? AbortSignal.any([signal, timeoutSignal]) : (signal ?? timeoutSignal);
+	return { timeoutSignal, mergedSignal };
+}
+
+/**
  * Wrap an async `run` function in a `CallHandle`. The handle's internal
  * signal fires when `externalSignal` aborts or when `handle.abort()` is
  * called.

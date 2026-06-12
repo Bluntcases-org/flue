@@ -2,7 +2,7 @@
  * Sandbox adapters: wraps BashFactory or SandboxApi into SessionEnv.
  */
 
-import { abortErrorFor } from './abort.ts';
+import { abortErrorFor, composeTimeoutSignal } from './abort.ts';
 import type {
 	BashFactory,
 	BashLike,
@@ -140,25 +140,14 @@ function createBashSessionEnv(bash: BashLike): SessionEnv {
 			// adapters, so a Bash-like implementation that ignores
 			// AbortSignal still never executes on a pre-aborted call.
 			if (opts?.signal?.aborted) throw abortErrorFor(opts.signal);
-			const exec = bash.exec as unknown as (
-				this: BashLike,
-				command: string,
-				options?: { cwd?: string; env?: Record<string, string>; signal?: AbortSignal },
-			) => Promise<ShellResult>;
 
 			// Just-bash has no native timeout option. Translate `timeoutMs`
 			// into an AbortSignal and compose with the caller's signal so
 			// bash factories observe deadlines with the same fidelity as
 			// signal-aware sandbox connectors.
-			const timeoutSignal =
-				typeof opts?.timeoutMs === 'number' ? AbortSignal.timeout(opts.timeoutMs) : undefined;
-			const mergedSignal =
-				opts?.signal && timeoutSignal
-					? AbortSignal.any([opts.signal, timeoutSignal])
-					: (opts?.signal ?? timeoutSignal);
+			const { mergedSignal } = composeTimeoutSignal(opts?.timeoutMs, opts?.signal);
 
-			const result = await exec.call(
-				bash,
+			const result = await bash.exec(
 				cmd,
 				opts ? { cwd: opts.cwd, env: opts.env, signal: mergedSignal } : undefined,
 			);

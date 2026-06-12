@@ -10,7 +10,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
-import { abortErrorFor } from '../abort.ts';
+import { abortErrorFor, composeTimeoutSignal } from '../abort.ts';
 import { writeFileCreatingParents } from '../sandbox.ts';
 import type { FileStat, SessionEnv, ShellResult } from '../types.ts';
 
@@ -245,12 +245,7 @@ export function createLocalSessionEnv(options: LocalSessionEnvOptions = {}): Ses
 			// Compose timeoutMs with the caller's signal so signal-blind
 			// callers still observe deadlines and signal-aware ones can abort
 			// mid-flight. Mirrors the bashFactory adapter's behavior.
-			const timeoutSignal =
-				typeof opts?.timeoutMs === 'number' ? AbortSignal.timeout(opts.timeoutMs) : undefined;
-			const mergedSignal =
-				signal && timeoutSignal
-					? AbortSignal.any([signal, timeoutSignal])
-					: (signal ?? timeoutSignal);
+			const { mergedSignal } = composeTimeoutSignal(opts?.timeoutMs, signal);
 
 			const result = await execShell(command, {
 				cwd: opts?.cwd ? resolvePath(opts.cwd) : cwd,
