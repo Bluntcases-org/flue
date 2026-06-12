@@ -12,6 +12,6 @@ export type { CloudflareSandboxOptions, CloudflareSandboxStub } from './cf-sandb
 export { cloudflareSandbox } from './cf-sandbox.ts';
 export type { CloudflareContext, FlueDurableObjectIdentity } from './context.ts';
 export { getCloudflareContext, getDurableObjectIdentity } from './context.ts';
-export type { CloudflareExtension, ExtensionClass } from './extension.ts';
+export type { CloudflareAgentLike, CloudflareExtension, ExtensionClass } from './extension.ts';
 export { extend } from './extension.ts';
 export type { CloudflareGatewayOptions } from './gateway.ts';

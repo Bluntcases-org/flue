@@ -243,10 +243,14 @@ Use `app.ts` for custom HTTP routes and middleware. `cloudflare.ts` must not def
 ```ts
 import { extend } from '@flue/runtime/cloudflare';
 
-function extend(extension: CloudflareExtension): CloudflareExtension;
+function extend<TBase extends object = CloudflareAgentLike>(
+  extension: CloudflareExtension<TBase>,
+): CloudflareExtension<TBase>;
 ```
 
 Creates a branded Cloudflare extension descriptor for an agent or workflow module. The descriptor may contain `base` and `wrap` callbacks.
+
+Both callbacks are typed against `CloudflareAgentLike`, a structural view of the Agents SDK `Agent` base class covering `state`, `setState()`, `onStart()`, `schedule()`, `scheduleEvery()`, and `queue()`, so typos inside `base` callbacks fail at typecheck. Pass an explicit `TBase` (for example `extend<CloudflareAgentLike<MyState>>({ ... })`) to type against a richer class shape.
 
 `base(Base)` must return the received class or a subclass. Flue uses its return value as the superclass for the generated Durable Object.
 

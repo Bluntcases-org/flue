@@ -1,22 +1,58 @@
 const CLOUDFLARE_EXTENSION = Symbol.for('@flue/runtime/cloudflare-extension');
 
-export type ExtensionClass = new (...args: any[]) => any;
-
-export interface CloudflareExtension {
-	base?: (Base: ExtensionClass) => ExtensionClass;
-	wrap?: (Final: ExtensionClass) => ExtensionClass;
+/**
+ * Minimal structural view of the Cloudflare Agents SDK `Agent` base class
+ * that Flue passes to `extend()` callbacks. `@flue/runtime` does not depend
+ * on the `agents` package, so this models the documented extension surface
+ * (state, lifecycle, scheduling, queueing) instead of importing the real
+ * class. Pass an explicit `TBase` to `extend()` to type against a richer
+ * class shape.
+ */
+export interface CloudflareAgentLike<State = Record<string, unknown>> {
+	state: State;
+	setState(state: State): void;
+	onStart(props?: Record<string, unknown>): Promise<void> | void;
+	schedule<T = string>(
+		when: Date | string | number,
+		callback: keyof this,
+		payload?: T,
+		options?: { retry?: unknown; idempotent?: boolean },
+	): Promise<unknown>;
+	scheduleEvery<T = string>(
+		intervalSeconds: number,
+		callback: keyof this,
+		payload?: T,
+		options?: { retry?: unknown },
+	): Promise<unknown>;
+	queue<T = unknown>(
+		callback: keyof this,
+		payload: T,
+		options?: { retry?: unknown },
+	): Promise<string>;
 }
 
-interface BrandedCloudflareExtension extends CloudflareExtension {
+export type ExtensionClass<TInstance extends object = CloudflareAgentLike> = new (
+	...args: any[]
+) => TInstance;
+
+export interface CloudflareExtension<TBase extends object = CloudflareAgentLike> {
+	base?: (Base: ExtensionClass<TBase>) => ExtensionClass<TBase>;
+	wrap?: (Final: ExtensionClass<TBase>) => ExtensionClass<TBase>;
+}
+
+interface BrandedCloudflareExtension extends CloudflareExtension<any> {
 	[CLOUDFLARE_EXTENSION]: true;
 }
 
+/** Runtime-resolved extension; classes are opaque to the generated entry. */
 export interface ResolvedCloudflareExtension {
-	base(Base: ExtensionClass): ExtensionClass;
-	wrap(Final: ExtensionClass): ExtensionClass;
+	base(Base: ExtensionClass<any>): ExtensionClass<any>;
+	wrap(Final: ExtensionClass<any>): ExtensionClass<any>;
 }
 
-export function extend(extension: CloudflareExtension): CloudflareExtension {
+export function extend<TBase extends object = CloudflareAgentLike>(
+	extension: CloudflareExtension<TBase>,
+): CloudflareExtension<TBase> {
 	if (typeof extension !== 'object' || extension === null || Array.isArray(extension)) {
 		throw new Error(
 			'[flue] extend() expects an object containing optional base and wrap callbacks.',
@@ -67,7 +103,7 @@ function identity<T>(value: T): T {
 	return value;
 }
 
-function isCloudflareExtension(value: unknown): value is CloudflareExtension {
+function isCloudflareExtension(value: unknown): value is CloudflareExtension<any> {
 	return (
 		typeof value === 'object' &&
 		value !== null &&
@@ -78,41 +114,41 @@ function isCloudflareExtension(value: unknown): value is CloudflareExtension {
 
 function assertExtensionClass(
 	value: unknown,
-	Base: ExtensionClass,
+	Base: ExtensionClass<any>,
 	name: string,
 	kind: string,
-): ExtensionClass {
+): ExtensionClass<any> {
 	if (
 		typeof value !== 'function' ||
 		(value !== Base && !(value.prototype instanceof Base)) ||
-		!isConstructable(value as ExtensionClass)
+		!isConstructable(value as ExtensionClass<any>)
 	) {
 		throw new Error(
 			`[flue] ${kind} "${name}" cloudflare.base must return the received class or a subclass.`,
 		);
 	}
-	return value as ExtensionClass;
+	return value as ExtensionClass<any>;
 }
 
 function assertExtensionWrapper(
 	value: unknown,
-	Final: ExtensionClass,
+	Final: ExtensionClass<any>,
 	name: string,
 	kind: string,
-): ExtensionClass {
+): ExtensionClass<any> {
 	if (
 		typeof value !== 'function' ||
 		(value !== Final && value.prototype !== Final.prototype) ||
-		!isConstructable(value as ExtensionClass)
+		!isConstructable(value as ExtensionClass<any>)
 	) {
 		throw new Error(
 			`[flue] ${kind} "${name}" cloudflare.wrap(Final) must return the received class or a constructor proxy.`,
 		);
 	}
-	return value as ExtensionClass;
+	return value as ExtensionClass<any>;
 }
 
-function isConstructable(value: ExtensionClass): boolean {
+function isConstructable(value: ExtensionClass<any>): boolean {
 	try {
 		Reflect.construct(Function, [], value);
 		return true;
