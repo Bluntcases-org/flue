@@ -1831,6 +1831,9 @@ export class Session implements FlueSession {
 		this.compactionAbortController = new AbortController();
 		const messagesBefore = this.harness.state.messages.length;
 		const compactionStartMs = Date.now();
+		// True between `compaction_start` and its terminal `compaction` event,
+		// so every started compaction emits exactly one terminal event.
+		let terminalPending = false;
 
 		try {
 			const sessionModel = this.harness.state.model;
@@ -1882,6 +1885,7 @@ export class Session implements FlueSession {
 
 			const estimatedTokens = preparation.tokensBefore;
 			this.emit({ type: 'compaction_start', reason, estimatedTokens });
+			terminalPending = true;
 
 			const result = await compact(
 				preparation,
@@ -1918,7 +1922,17 @@ export class Session implements FlueSession {
 			);
 
 			if (this.compactionAbortController.signal.aborted) {
-				if (reason === 'manual') throw abortErrorFor(this.compactionAbortController.signal);
+				const abortError = abortErrorFor(this.compactionAbortController.signal);
+				this.emit({
+					type: 'compaction',
+					messagesBefore,
+					messagesAfter: this.harness.state.messages.length,
+					durationMs: durationSince(compactionStartMs),
+					isError: true,
+					error: serializeError(abortError),
+				});
+				terminalPending = false;
+				if (reason === 'manual') throw abortError;
 				return false;
 			}
 
@@ -1943,14 +1957,26 @@ export class Session implements FlueSession {
 				messagesBefore,
 				messagesAfter,
 				durationMs: durationSince(compactionStartMs),
+				isError: false,
 				usage: result.usage,
 			});
+			terminalPending = false;
 
 			await this.save();
 			return true;
 		} catch (error) {
 			const errorMessage = error instanceof Error ? error.message : String(error);
 			this.internalLog('error', `[flue:compaction] Failed: ${errorMessage}`, { error });
+			if (terminalPending) {
+				this.emit({
+					type: 'compaction',
+					messagesBefore,
+					messagesAfter: this.harness.state.messages.length,
+					durationMs: durationSince(compactionStartMs),
+					isError: true,
+					error: serializeError(error),
+				});
+			}
 			// Explicit `session.compact()` calls must surface their own failure;
 			// automatic threshold/overflow compaction stays best-effort.
 			if (reason === 'manual') throw error;

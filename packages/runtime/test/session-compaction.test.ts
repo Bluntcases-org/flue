@@ -140,7 +140,8 @@ describe('session.compact()', () => {
 
 		await expect(session.compact()).rejects.toThrow();
 
-		expect(events.some((event) => event.type === 'compaction')).toBe(false);
+		expect(events.some((event) => event.type === 'compaction' && event.isError)).toBe(true);
+		expect(events.some((event) => event.type === 'compaction' && !event.isError)).toBe(false);
 		expect(
 			events.some(
 				(event) =>

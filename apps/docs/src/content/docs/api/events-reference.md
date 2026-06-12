@@ -70,10 +70,10 @@ Both model-driven and programmatic (`shell()`) tool activity emit `tool_start` a
 
 ### Compaction
 
-| Event              | Meaning                                                                                |
-| ------------------ | -------------------------------------------------------------------------------------- |
-| `compaction_start` | Conversation compaction started. Includes `threshold`, `overflow`, or `manual` reason. |
-| `compaction`       | Conversation compaction ended. Includes message counts, duration, and optional usage.  |
+| Event              | Meaning                                                                                            |
+| ------------------ | -------------------------------------------------------------------------------------------------- |
+| `compaction_start` | Conversation compaction started. Includes `threshold`, `overflow`, or `manual` reason.             |
+| `compaction`       | Conversation compaction ended. Includes message counts, duration, error state, and optional usage. |
 
 ### Logs
 

@@ -269,6 +269,7 @@ export function createOpenTelemetryObserver(
 			const key = compactionKey(event);
 			const span = compactions.get(key);
 			if (!span) return;
+			const exportedEvent = sanitizeEvent(sanitize, event);
 			span.setAttributes({
 				'flue.duration_ms': event.durationMs,
 				...eventIndexAttribute('end', event),
@@ -276,7 +277,7 @@ export function createOpenTelemetryObserver(
 				'flue.compaction.messages_after': event.messagesAfter,
 				...usageAttributes(event.usage, 'flue.compaction.usage'),
 			});
-			span.end(time);
+			complete(span, event.isError, exportedEvent?.error, 'Compaction failed.', time);
 			compactions.delete(key);
 			return;
 		}

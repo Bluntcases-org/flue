@@ -291,6 +291,7 @@ describe('createOpenTelemetryObserver', () => {
 				messagesBefore: 12,
 				messagesAfter: 3,
 				durationMs: 20,
+				isError: false,
 				usage: {
 					input: 2,
 					output: 3,

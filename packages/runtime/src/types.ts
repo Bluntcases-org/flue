@@ -1038,6 +1038,8 @@ export type FlueEvent = (
 			messagesBefore: number;
 			messagesAfter: number;
 			durationMs: number;
+			isError: boolean;
+			error?: unknown;
 			usage?: PromptUsage;
 	  }
 	| {
