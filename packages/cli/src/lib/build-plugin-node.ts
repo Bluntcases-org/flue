@@ -1,5 +1,9 @@
 /** Node.js build plugin. Produces a server for workflow runs and agent interactions. */
-import { generateBuiltModuleNormalizationSource } from './generated-entry-normalization.ts';
+import {
+	agentVarName,
+	generateBuiltModuleNormalizationSource,
+	workflowVarName,
+} from './generated-entry-normalization.ts';
 import type { BuildContext, BuildPlugin } from './types.ts';
 
 export class NodePlugin implements BuildPlugin {
@@ -38,8 +42,12 @@ export class NodePlugin implements BuildPlugin {
 		// default export and dispatches all requests through `app.fetch`. When
 		// no app.ts is present, the generated entry constructs a thin default
 		// Hono that mounts `flue()` and renders canonical error envelopes.
-		const userAppImport = appEntry ? `import userApp from ${JSON.stringify(appEntry.replace(/\\/g, '/'))};` : '';
-		const userDbImport = dbEntry ? `import userPersistenceAdapter from ${JSON.stringify(dbEntry.replace(/\\/g, '/'))};` : '';
+		const userAppImport = appEntry
+			? `import userApp from ${JSON.stringify(appEntry.replace(/\\/g, '/'))};`
+			: '';
+		const userDbImport = dbEntry
+			? `import userPersistenceAdapter from ${JSON.stringify(dbEntry.replace(/\\/g, '/'))};`
+			: '';
 
 		// All HTTP routing, workflow admission, agent dispatch, and error
 		// rendering live in @flue/runtime's runtime modules. The generated
@@ -110,8 +118,8 @@ async function createDefaultEnv() {
 }
 
 ${
-			dbEntry
-				? `// Custom persistence from db.ts. connect() is awaited once at startup so
+	dbEntry
+		? `// Custom persistence from db.ts. connect() is awaited once at startup so
 // an unreachable or misconfigured database fails at boot, not inside the
 // first request.
 if (!userPersistenceAdapter || typeof userPersistenceAdapter.connect !== 'function') {
@@ -139,11 +147,11 @@ try {
 } catch (error) {
   throw new Error('[flue] Failed to initialize persistence from db.ts: ' + (error instanceof Error ? error.message : error), { cause: error });
 }`
-				: `// Default persistence for Node — in-memory SQLite, process lifetime.
+		: `// Default persistence for Node — in-memory SQLite, process lifetime.
 const defaultAdapter = sqlite();
 if (defaultAdapter.migrate) await defaultAdapter.migrate();
 const { executionStore, runStore, eventStreamStore } = await defaultAdapter.connect();`
-		}
+}
 const persistenceAdapter = ${dbEntry ? `userPersistenceAdapter` : `defaultAdapter`};
 const agentCoordinator = createNodeAgentCoordinator({
   submissions: executionStore.submissions,
@@ -413,14 +421,4 @@ if (isLocalCliMode) {
 	}
 
 	external = ['node-liblzma', '@mongodb-js/zstd'];
-}
-
-function agentVarName(name: string, index: number): string {
-	const readableName = name.replace(/[^a-zA-Z0-9]/g, '_').replace(/^_+|_+$/g, '') || 'agent';
-	return `handler_${readableName}_${index}`;
-}
-
-function workflowVarName(name: string, index: number): string {
-	const readableName = name.replace(/[^a-zA-Z0-9]/g, '_').replace(/^_+|_+$/g, '') || 'workflow';
-	return `workflow_${readableName}_${index}`;
 }

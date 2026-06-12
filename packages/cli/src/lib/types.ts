@@ -63,7 +63,6 @@ export interface BuildContext {
 	dbEntry?: string;
 	/** Version of @flue/runtime resolved for this build. */
 	runtimeVersion: string;
-	options: BuildOptions;
 }
 
 /**

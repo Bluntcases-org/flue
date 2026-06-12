@@ -12,7 +12,9 @@ describe('NodePlugin', () => {
 		);
 
 		expect(entry).toContain('import * as handler_assistant_0 from "/fixture/agents/assistant.ts";');
-		expect(entry).toContain('import * as workflow_translate_0 from "/fixture/workflows/translate.ts";');
+		expect(entry).toContain(
+			'import * as workflow_translate_0 from "/fixture/workflows/translate.ts";',
+		);
 		expect(entry).toContain('"assistant": handler_assistant_0,');
 		expect(entry).toContain('"translate": workflow_translate_0,');
 	});
@@ -102,7 +104,6 @@ function testBuildContext(overrides: Partial<BuildContext> = {}): BuildContext {
 		root: '/fixture',
 		output: '/fixture/dist',
 		runtimeVersion: '0.0.0-test',
-		options: { root: '/fixture', sourceRoot: '/fixture', target: 'node' },
 		...overrides,
 	};
 }

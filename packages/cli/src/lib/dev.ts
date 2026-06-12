@@ -125,7 +125,7 @@ export async function dev(options: DevOptions): Promise<void> {
 	const reloader: DevReloader =
 		options.target === 'node'
 			? new NodeReloader({ root, output, port })
-			: await createCloudflareReloader({ root, sourceRoot, port });
+			: new CloudflareReloader({ root, sourceRoot, port });
 
 	await reloader.start();
 
@@ -146,7 +146,7 @@ export async function dev(options: DevOptions): Promise<void> {
 		options.target === 'cloudflare'
 			? () => envLoader.withApplied(() => build(buildOptions))
 			: () => build(buildOptions);
-	const rebuilder = createRebuilder(buildOptions, reloader, rebuild);
+	const rebuilder = createRebuilder(reloader, rebuild);
 	const watcher = createWatcher({
 		root,
 		sourceRoot,
@@ -227,9 +227,8 @@ interface Rebuilder {
 }
 
 function createRebuilder(
-	buildOptions: BuildOptions,
 	reloader: DevReloader,
-	rebuild: () => Promise<{ changed: boolean }> = () => build(buildOptions),
+	rebuild: () => Promise<{ changed: boolean }>,
 ): Rebuilder {
 	let running = false;
 	let queued = false;
@@ -531,14 +530,6 @@ class NodeReloader implements DevReloader {
 }
 
 // ─── Cloudflare reloader ────────────────────────────────────────────────────
-
-async function createCloudflareReloader(opts: {
-	root: string;
-	sourceRoot: string;
-	port: number;
-}): Promise<DevReloader> {
-	return new CloudflareReloader(opts);
-}
 
 class CloudflareReloader implements DevReloader {
 	private server: Awaited<ReturnType<typeof import('vite').createServer>> | null = null;

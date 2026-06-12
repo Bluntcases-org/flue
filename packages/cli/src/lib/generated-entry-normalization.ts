@@ -1,3 +1,18 @@
+/** Variable name for a generated-entry agent module import. */
+export function agentVarName(name: string, index: number): string {
+	return builtModuleVarName('handler', 'agent', name, index);
+}
+
+/** Variable name for a generated-entry workflow module import. */
+export function workflowVarName(name: string, index: number): string {
+	return builtModuleVarName('workflow', 'workflow', name, index);
+}
+
+function builtModuleVarName(prefix: string, fallback: string, name: string, index: number): string {
+	const readableName = name.replace(/[^a-zA-Z0-9]/g, '_').replace(/^_+|_+$/g, '') || fallback;
+	return `${prefix}_${readableName}_${index}`;
+}
+
 export function generateBuiltModuleNormalizationSource(): string {
 	return `
 function normalizeBuiltModules(agentModules, workflowModules) {

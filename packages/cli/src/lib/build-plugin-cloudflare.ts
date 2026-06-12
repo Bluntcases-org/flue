@@ -6,7 +6,11 @@ import {
 	readUserWranglerConfig,
 	validateUserWranglerConfig,
 } from './cloudflare-wrangler-merge.ts';
-import { generateBuiltModuleNormalizationSource } from './generated-entry-normalization.ts';
+import {
+	agentVarName,
+	generateBuiltModuleNormalizationSource,
+	workflowVarName,
+} from './generated-entry-normalization.ts';
 import type { BuildContext, BuildPlugin, ViteCloudflareInputs } from './types.ts';
 
 export class CloudflarePlugin implements BuildPlugin {
@@ -121,7 +125,9 @@ export { Wrapped${workflowClassName(workflow.name)} as ${workflowClassName(workf
 			)
 			.join('\n');
 
-		const userAppImport = appEntry ? `import userApp from ${JSON.stringify(appEntry.replace(/\\/g, '/'))};` : '';
+		const userAppImport = appEntry
+			? `import userApp from ${JSON.stringify(appEntry.replace(/\\/g, '/'))};`
+			: '';
 		const userCloudflareImport = cloudflareEntry
 			? `import * as userCloudflareModule from ${JSON.stringify(cloudflareEntry.replace(/\\/g, '/'))};`
 			: '';
@@ -590,16 +596,6 @@ export default {
 
 		return { wranglerConfig: JSON.stringify(merged, null, 2) };
 	}
-}
-
-function agentVarName(name: string, index: number): string {
-	const readableName = name.replace(/[^a-zA-Z0-9]/g, '_').replace(/^_+|_+$/g, '') || 'agent';
-	return `handler_${readableName}_${index}`;
-}
-
-function workflowVarName(name: string, index: number): string {
-	const readableName = name.replace(/[^a-zA-Z0-9]/g, '_').replace(/^_+|_+$/g, '') || 'workflow';
-	return `workflow_${readableName}_${index}`;
 }
 
 const CLOUDFLARE_AGENT_NAME_PATTERN = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;

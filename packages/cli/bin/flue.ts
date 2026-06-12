@@ -1382,7 +1382,9 @@ function logsRenderPretty(event: FlueEvent): void {
 		const duration = formatDuration(event.durationMs);
 		if (event.isError) {
 			const err = event.error as { message?: string } | undefined;
-			console.error(`[flue] run:end      ${event.runId}  ERROR  ${err?.message ?? ''}  (${duration})`);
+			console.error(
+				`[flue] run:end      ${event.runId}  ERROR  ${err?.message ?? ''}  (${duration})`,
+			);
 		} else {
 			console.error(`[flue] run:end      ${event.runId}  ok  (${duration})`);
 		}
@@ -1425,9 +1427,8 @@ function logsEmitEvent(event: FlueEvent, format: LogsArgs['format']): void {
 		// (on run streams, event index == stream sequence; flue logs reads
 		// runs only). The stream's own offset getter is batch-granular and
 		// would skip events if used as a mid-batch checkpoint.
-		const offset = typeof event.eventIndex === 'number'
-			? formatEventOffset(event.eventIndex)
-			: undefined;
+		const offset =
+			typeof event.eventIndex === 'number' ? formatEventOffset(event.eventIndex) : undefined;
 		const output = offset ? { ...event, offset } : event;
 		process.stdout.write(`${JSON.stringify(output)}\n`);
 	} else {
@@ -1456,7 +1457,9 @@ async function logsCommand(args: LogsArgs): Promise<void> {
 		}
 		// Run ids are opaque; surface the owning workflow from the run record.
 		if (args.format === 'pretty') {
-			console.error(`[flue] run          ${args.runId}  workflow=${run.workflowName}  status=${run.status}`);
+			console.error(
+				`[flue] run          ${args.runId}  workflow=${run.workflowName}  status=${run.status}`,
+			);
 		}
 		shouldFollow = args.follow ?? run.status === 'active';
 	}
@@ -1688,15 +1691,18 @@ function categoryRootHint(): string {
 	return lines.join('\n');
 }
 
-function printListing(stream: NodeJS.WriteStream) {
-	stream.write('flue add <name>\n\n');
-	stream.write('Available connectors:\n');
-	const rows = CONNECTORS.map((c) => ({
+function availableConnectorRows() {
+	return CONNECTORS.map((c) => ({
 		command: `flue add ${c.slug}`,
 		category: c.category,
 		website: c.website,
 	}));
-	stream.write(renderConnectorTable(rows));
+}
+
+function printListing(stream: NodeJS.WriteStream) {
+	stream.write('flue add <name>\n\n');
+	stream.write('Available connectors:\n');
+	stream.write(renderConnectorTable(availableConnectorRows()));
 	stream.write('\n');
 	const hint = categoryRootHint();
 	if (hint) stream.write(`${hint}\n`);
@@ -1705,12 +1711,7 @@ function printListing(stream: NodeJS.WriteStream) {
 function printUnknownConnector(name: string, stream: NodeJS.WriteStream) {
 	stream.write(`Connector "${name}" not found.\n\n`);
 	stream.write('Available connectors:\n');
-	const rows = CONNECTORS.map((c) => ({
-		command: `flue add ${c.slug}`,
-		category: c.category,
-		website: c.website,
-	}));
-	stream.write(renderConnectorTable(rows));
+	stream.write(renderConnectorTable(availableConnectorRows()));
 	stream.write('\n');
 	if (CATEGORY_ROOTS.length > 0) {
 		stream.write('\nTo build one from scratch with your coding agent:\n');
@@ -1979,6 +1980,40 @@ function printHumanInstructions(args: AddArgs) {
 	stream.write(`  Run "${cmd} --print" and follow the instructions.\n`);
 }
 
+/**
+ * Shared tail of `flue add`: fetch the connector markdown for `slug`, then
+ * either write it to stdout (agent mode / --print) or print human
+ * instructions. `substituteUrl` replaces `{{URL}}` placeholders in
+ * category-root markdown.
+ */
+async function emitConnectorMarkdown(
+	args: AddArgs,
+	opts: { slug: string; notFoundLabel: string; substituteUrl?: string },
+) {
+	const result = await fetchConnectorMarkdown(opts.slug);
+	if ('notFound' in result) {
+		console.error(
+			`[flue] The connector registry did not have markdown for ${opts.notFoundLabel}. ` +
+				`Your installed CLI may be out of sync with the registry — try updating @flue/cli.`,
+		);
+		process.exit(1);
+	}
+
+	const body =
+		opts.substituteUrl === undefined
+			? result.body
+			: result.body.replaceAll('{{URL}}', opts.substituteUrl);
+
+	const isAgentMode =
+		args.print || (await determineAgent().catch(() => ({ isAgent: false }))).isAgent === true;
+	if (isAgentMode) {
+		process.stdout.write(body);
+		if (!body.endsWith('\n')) process.stdout.write('\n');
+		return;
+	}
+	printHumanInstructions(args);
+}
+
 async function addCommand(args: AddArgs) {
 	if (!args.name && !args.category) {
 		printListing(process.stderr);
@@ -1995,25 +2030,11 @@ async function addCommand(args: AddArgs) {
 			);
 			process.exit(1);
 		}
-		const result = await fetchConnectorMarkdown(args.category);
-		if ('notFound' in result) {
-			console.error(
-				`[flue] The connector registry did not have markdown for category "${args.category}". ` +
-					`Your installed CLI may be out of sync with the registry — try updating @flue/cli.`,
-			);
-			process.exit(1);
-		}
-
-		const body = result.body.replaceAll('{{URL}}', args.name);
-
-		const isAgentMode =
-			args.print || (await determineAgent().catch(() => ({ isAgent: false }))).isAgent === true;
-		if (isAgentMode) {
-			process.stdout.write(body);
-			if (!body.endsWith('\n')) process.stdout.write('\n');
-			return;
-		}
-		printHumanInstructions(args);
+		await emitConnectorMarkdown(args, {
+			slug: args.category,
+			notFoundLabel: `category "${args.category}"`,
+			substituteUrl: args.name,
+		});
 		return;
 	}
 
@@ -2023,23 +2044,7 @@ async function addCommand(args: AddArgs) {
 		process.exit(1);
 	}
 
-	const result = await fetchConnectorMarkdown(known.slug);
-	if ('notFound' in result) {
-		console.error(
-			`[flue] The connector registry did not have markdown for "${known.slug}". ` +
-				`Your installed CLI may be out of sync with the registry — try updating @flue/cli.`,
-		);
-		process.exit(1);
-	}
-
-	const isAgentMode =
-		args.print || (await determineAgent().catch(() => ({ isAgent: false }))).isAgent === true;
-	if (isAgentMode) {
-		process.stdout.write(result.body);
-		if (!result.body.endsWith('\n')) process.stdout.write('\n');
-		return;
-	}
-	printHumanInstructions(args);
+	await emitConnectorMarkdown(args, { slug: known.slug, notFoundLabel: `"${known.slug}"` });
 }
 
 // ─── Entry Point ────────────────────────────────────────────────────────────

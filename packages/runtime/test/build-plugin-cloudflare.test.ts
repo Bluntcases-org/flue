@@ -56,12 +56,18 @@ describe('CloudflarePlugin', () => {
 		);
 
 		expect(entry).toContain('const cloudflareAgents = createCloudflareAgentRuntime({');
-		expect(entry).toContain('const prepared = cloudflareAgents.prepare({ storage: ctx.storage, className: "FlueAssistantAgent", agentName: "assistant" });');
+		expect(entry).toContain(
+			'const prepared = cloudflareAgents.prepare({ storage: ctx.storage, className: "FlueAssistantAgent", agentName: "assistant" });',
+		);
 		expect(entry).toContain('cloudflareAgents.attach(this, prepared);');
-		expect(entry).toContain("return cloudflareAgents.onStart(this, () => typeof super.onStart === 'function' ? super.onStart(props) : undefined);");
+		expect(entry).toContain(
+			"return cloudflareAgents.onStart(this, () => typeof super.onStart === 'function' ? super.onStart(props) : undefined);",
+		);
 		expect(entry).toContain('return cloudflareAgents.wakeSubmissions(this);');
 		expect(entry).toContain('return cloudflareAgents.onRequest(this, request);');
-		expect(entry).toContain('return cloudflareAgents.onFiberRecovered(this, ctx, () => typeof super.onFiberRecovered === \'function\' ? super.onFiberRecovered(ctx) : undefined);');
+		expect(entry).toContain(
+			"return cloudflareAgents.onFiberRecovered(this, ctx, () => typeof super.onFiberRecovered === 'function' ? super.onFiberRecovered(ctx) : undefined);",
+		);
 		expect(entry).toContain(
 			"if (request.method === 'GET' && url.searchParams.has('meta')) return { action: 'get', runId };",
 		);
@@ -103,7 +109,6 @@ function testBuildContext(overrides: Partial<BuildContext> = {}): BuildContext {
 		root: '/fixture',
 		output: '/fixture/dist',
 		runtimeVersion: '0.0.0-test',
-		options: { root: '/fixture', sourceRoot: '/fixture', target: 'cloudflare' },
 		...overrides,
 	};
 }

@@ -102,7 +102,6 @@ async function buildApplication(options: BuildOptions): Promise<BuildResult> {
 		cloudflareEntry,
 		dbEntry,
 		runtimeVersion: readRuntimeVersion(root),
-		options,
 	};
 
 	const serverCode = await plugin.generateEntryPoint(ctx);
@@ -259,63 +258,43 @@ function resolvePlugin(options: BuildOptions): BuildPlugin {
 }
 
 function discoverAgents(sourceRoot: string): AgentInfo[] {
-	const agentsDir = path.join(sourceRoot, 'agents');
-	if (!fs.existsSync(agentsDir)) return [];
-
-	const files = fs
-		.readdirSync(agentsDir)
-		.filter((file) => !/\.d\.(ts|mts)$/.test(file) && /\.(ts|js|mts|mjs)$/.test(file));
-	const agentFiles = new Map<string, string>();
-	for (const file of files) {
-		const name = file.replace(/\.(ts|js|mts|mjs)$/, '');
-		if (!name || name.includes(':')) {
-			throw new Error(
-				`[flue] Agent basename "${name}" is invalid. Agent names must be non-empty and must not contain ":".`,
-			);
-		}
-		const previous = agentFiles.get(name);
-		if (previous) {
-			throw new Error(
-				`[flue] Duplicate agent basename "${name}" found: ${previous}, ${file}. Keep only one agent source file per basename.`,
-			);
-		}
-		agentFiles.set(name, file);
-	}
-
-	return files.map((file) => ({
-		name: file.replace(/\.(ts|js|mts|mjs)$/, ''),
-		filePath: path.join(agentsDir, file),
-	}));
+	return discoverModules(sourceRoot, 'agent');
 }
 
 function discoverWorkflows(sourceRoot: string): WorkflowInfo[] {
-	const workflowsDir = path.join(sourceRoot, 'workflows');
-	if (!fs.existsSync(workflowsDir)) return [];
+	return discoverModules(sourceRoot, 'workflow');
+}
+
+function discoverModules(sourceRoot: string, kind: 'agent' | 'workflow'): AgentInfo[] {
+	const modulesDir = path.join(sourceRoot, `${kind}s`);
+	if (!fs.existsSync(modulesDir)) return [];
 
 	const files = fs
-		.readdirSync(workflowsDir)
+		.readdirSync(modulesDir)
 		.filter((file) => !/\.d\.(ts|mts)$/.test(file) && /\.(ts|js|mts|mjs)$/.test(file));
-	const workflowFiles = new Map<string, string>();
+	const seen = new Map<string, string>();
+	const modules: AgentInfo[] = [];
 	for (const file of files) {
 		const name = file.replace(/\.(ts|js|mts|mjs)$/, '');
-		if (!name) {
+		// Agent names additionally ban ':' because agent addressing reserves
+		// it; workflow names dropped that restriction with run_<ulid> ids.
+		if (!name || (kind === 'agent' && name.includes(':'))) {
 			throw new Error(
-				`[flue] Workflow basename "${name}" is invalid. Workflow names must be non-empty.`,
+				kind === 'agent'
+					? `[flue] Agent basename "${name}" is invalid. Agent names must be non-empty and must not contain ":".`
+					: `[flue] Workflow basename "${name}" is invalid. Workflow names must be non-empty.`,
 			);
 		}
-		const previous = workflowFiles.get(name);
+		const previous = seen.get(name);
 		if (previous) {
 			throw new Error(
-				`[flue] Duplicate workflow basename "${name}" found: ${previous}, ${file}. Keep only one workflow source file per basename.`,
+				`[flue] Duplicate ${kind} basename "${name}" found: ${previous}, ${file}. Keep only one ${kind} source file per basename.`,
 			);
 		}
-		workflowFiles.set(name, file);
+		seen.set(name, file);
+		modules.push({ name, filePath: path.join(modulesDir, file) });
 	}
-
-	return files.map((file) => ({
-		name: file.replace(/\.(ts|js|mts|mjs)$/, ''),
-		filePath: path.join(workflowsDir, file),
-	}));
+	return modules;
 }
 
 function discoverOptionalEntry(sourceRoot: string, basename: string): string | undefined {
