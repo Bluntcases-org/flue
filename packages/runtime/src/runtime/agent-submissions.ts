@@ -389,11 +389,17 @@ export async function reconcileInterruptedSubmission(
 	// both observe the same expired-lease submission, both append recovery
 	// messages, and then only one wins the CAS. recoverInterruptedStream has
 	// a partial idempotency guard (alreadyRecovered check), but
-	// repairInterruptedToolCalls does not. When multi-process is supported,
-	// either move replaceTurnJournalAttempt before the mutations or add an
-	// idempotency guard to repairInterruptedToolCalls. This is safe today
-	// because Cloudflare DOs are single-threaded and multi-process Node is
-	// not a supported configuration.
+	// repairInterruptedToolCalls does not. The same pattern exists on the
+	// terminal path: failInterruptedSubmission appends the submission_interrupted
+	// advisory (recordSubmissionTerminal) and saves the session *before* the
+	// failSubmission CAS, so a reconciler that loses that CAS has already
+	// polluted session history (its in-process findSubmissionTerminal guard
+	// does not see a concurrent process's append). When multi-process is
+	// supported, either move replaceTurnJournalAttempt before the mutations
+	// or add an idempotency guard to repairInterruptedToolCalls, and move
+	// recordSubmissionTerminal after (or make it conditional on) the
+	// failSubmission CAS. This is safe today because Cloudflare DOs are
+	// single-threaded and multi-process Node is not a supported configuration.
 	if (
 		journal?.phase === 'provider_started' &&
 		journal.committed === false &&
