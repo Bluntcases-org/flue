@@ -199,16 +199,19 @@ export class Harness implements FlueHarness {
 			? createCwdSessionEnv(options.parentEnv, options.parentEnv.resolvePath(options.cwd))
 			: options.parentEnv;
 		const taskAgent = options.agent;
-		const localContext = await discoverSessionContext(
-			taskEnv,
-			taskAgent?.instructions ?? this.config.instructions,
-			taskAgent?.skills ?? this.config.definitionSkills,
-		);
+		// Subagent profiles are self-contained: capability/identity fields
+		// (instructions, tools, skills, subagents) come only from the profile —
+		// omitted means none, never the parent's. Environment fields (model,
+		// thinkingLevel, compaction) inherit from the parent as runtime
+		// defaults. Agent-less tasks reuse the parent's full config.
+		const instructions = taskAgent ? taskAgent.instructions : this.config.instructions;
+		const definitionSkills = taskAgent ? taskAgent.skills : this.config.definitionSkills;
+		const localContext = await discoverSessionContext(taskEnv, instructions, definitionSkills);
 		const taskConfig: AgentConfig = {
 			...this.config,
 			systemPrompt: localContext.systemPrompt,
-			instructions: taskAgent?.instructions ?? this.config.instructions,
-			definitionSkills: taskAgent?.skills ?? this.config.definitionSkills,
+			instructions,
+			definitionSkills,
 			skills: localContext.skills,
 			subagents: taskAgent
 				? Object.fromEntries(
@@ -253,7 +256,7 @@ export class Harness implements FlueHarness {
 			store: this.store,
 			existingData: data,
 			onAgentEvent: eventCallback,
-			agentTools: taskAgent?.tools ?? this.agentTools,
+			agentTools: taskAgent ? (taskAgent.tools ?? []) : this.agentTools,
 			toolFactory: this.toolFactory,
 			taskDepth: options.depth,
 			createTaskSession: (childOptions) => this.createTaskSession(childOptions),

@@ -662,6 +662,46 @@ describe('session.task()', () => {
 		});
 	});
 
+	it('gives a subagent no parent tools or skills when its profile declares only name and instructions', async () => {
+		const provider = createProvider([{ id: 'reviewer' }]);
+		const delegatedToolNames: string[][] = [];
+		provider.setResponses([
+			(context) => {
+				delegatedToolNames.push((context.tools ?? []).map((tool) => tool.name));
+				return fauxAssistantMessage('Summarized.');
+			},
+		]);
+		const ctx = createContext(provider);
+		const harness = await ctx.init(
+			createAgent(() => ({
+				model: `${provider.getModel().provider}/reviewer`,
+				tools: [
+					defineTool({
+						name: 'deploy_service',
+						description: 'Deploys the production service.',
+						parameters: Type.Object({}),
+						execute: async () => 'deployed',
+					}),
+				],
+				skills: [{ name: 'release-runbook', description: 'Release process guidance.' }],
+				subagents: [
+					defineAgentProfile({
+						name: 'summarizer',
+						instructions: 'Summarize the supplied text in one line.',
+					}),
+				],
+			})),
+		);
+		const session = await harness.session();
+
+		const response = await session.task('Summarize this report.', { agent: 'summarizer' });
+
+		expect(response.text).toBe('Summarized.');
+		expect(delegatedToolNames).toHaveLength(1);
+		expect(delegatedToolNames[0]).not.toContain('deploy_service');
+		expect(delegatedToolNames[0]).not.toContain('activate_skill');
+	});
+
 	it('rejects an undeclared subagent when task() receives an unknown agent name', async () => {
 		const provider = createProvider([{ id: 'reviewer' }]);
 		const ctx = createContext(provider);
