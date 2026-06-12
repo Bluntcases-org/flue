@@ -31,10 +31,15 @@ import type { CloudflareGatewayOptions } from './gateway.ts';
 // ─── OpenAI-completions compat profile ──────────────────────────────────────
 
 /**
- * Mirrors pi-ai's `detectCompat('cloudflare-workers-ai')`. Hardcoded here
- * because `convertMessages` requires a fully-resolved compat object and the
- * binding's wire format matches `cloudflare-workers-ai` exactly. Re-mirror
- * if pi-ai's detection logic changes upstream.
+ * Mirrors pi-ai's effective compat for Workers AI models: `getCompat()`, i.e.
+ * `detectCompat('cloudflare-workers-ai')` plus the per-model `compat`
+ * overrides in pi-ai's model registry (which set `sendSessionAffinityHeaders:
+ * true`; `detectCompat` alone returns `false`). Hardcoded here because
+ * `convertMessages` requires a fully-resolved compat object and the binding's
+ * wire format matches `cloudflare-workers-ai` exactly. Re-mirror if pi-ai's
+ * detection logic or registry overrides change upstream. Note
+ * `sendSessionAffinityHeaders` is inert in this provider — it applies the
+ * `x-session-affinity` header itself in `streamCloudflareWorkersAi`.
  */
 const WORKERS_AI_COMPAT: Required<Omit<OpenAICompletionsCompat, 'cacheControlFormat'>> & {
 	cacheControlFormat?: OpenAICompletionsCompat['cacheControlFormat'];
@@ -77,9 +82,9 @@ function convertTools(tools: Tool[]): OpenAIToolFunctionDef[] {
 			name: tool.name,
 			description: tool.description,
 			parameters: tool.parameters,
-			// Match pi-ai's openai-completions: emit `strict: false` only when the
-			// provider supports the field (some reject unknown fields outright).
-			...(WORKERS_AI_COMPAT.supportsStrictMode !== false && { strict: false }),
+			// Match pi-ai's openai-completions for providers that support the
+			// field (WORKERS_AI_COMPAT.supportsStrictMode is true).
+			strict: false,
 		},
 	}));
 }
