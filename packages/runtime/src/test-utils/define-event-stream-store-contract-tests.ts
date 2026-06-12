@@ -128,5 +128,49 @@ export function defineEventStreamStoreContractTests(
 			const store = await create();
 			expect(await store.getStreamMeta('runs/missing')).toBeNull();
 		});
+
+		it('tolerates reads but rejects appends when the stream does not exist', async () => {
+			const store = await create();
+
+			expect(await store.readEvents('runs/missing', { offset: '-1' })).toEqual({
+				events: [],
+				nextOffset: '-1',
+				upToDate: true,
+				closed: false,
+			});
+			await expect(store.appendEvent('runs/missing', { index: 0 })).rejects.toThrow('does not exist');
+		});
+
+		it('returns the tail cursor with no events when offset is "now"', async () => {
+			const store = await create();
+			await store.createStream('runs/test');
+			await store.appendEvent('runs/test', { index: 0 });
+			const tail = await store.appendEvent('runs/test', { index: 1 });
+
+			expect(await store.readEvents('runs/test', { offset: 'now' })).toEqual({
+				events: [],
+				nextOffset: tail,
+				upToDate: true,
+				closed: false,
+			});
+		});
+
+		it('preserves existing events when createStream is called on an existing stream', async () => {
+			const store = await create();
+			await store.createStream('runs/test');
+			const offset = await store.appendEvent('runs/test', { index: 0 });
+
+			await store.createStream('runs/test');
+
+			expect(await store.getStreamMeta('runs/test')).toEqual({
+				nextOffset: offset,
+				closed: false,
+			});
+			expect(await store.readEvents('runs/test', { offset: '-1' })).toMatchObject({
+				events: [{ data: { index: 0 }, offset }],
+				nextOffset: offset,
+				upToDate: true,
+			});
+		});
 	});
 }
