@@ -386,6 +386,22 @@ export function defineStoreContractTests(
 				);
 				expect(replaced).toMatchObject({ attemptCount: 2, attemptId: 'attempt-2' });
 			});
+
+			it('increments attempt_count and preserves timeout_at when reclaiming after requeue', async () => {
+				const store = await create();
+				await store.submissions.admitDispatch(dispatchInput());
+				await store.submissions.claimSubmission(claim('dispatch-1', 'attempt-1'));
+				const first = await store.submissions.getSubmission('dispatch-1');
+				if (!first) throw new Error('Expected claimed submission to exist.');
+				expect(first.attemptCount).toBe(1);
+
+				await store.submissions.requeueSubmissionBeforeInputApplied(attempt('dispatch-1', 'attempt-1'));
+				await store.submissions.claimSubmission(claim('dispatch-1', 'attempt-2'));
+				expect(await store.submissions.getSubmission('dispatch-1')).toMatchObject({
+					attemptCount: 2,
+					timeoutAt: first.timeoutAt,
+				});
+			});
 		});
 
 		// ── Stream chunks ────────────────────────────────────────────────

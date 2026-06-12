@@ -599,8 +599,9 @@ class AgentSubmissionStoreImpl implements AgentSubmissionStore {
 		const row = this.sql
 			.exec(
 				`UPDATE flue_agent_submissions AS current
-				 SET status = 'running', attempt_id = ?, started_at = ?, attempt_count = 1,
-				     max_retry = ?, timeout_at = ?, owner_id = ?, lease_expires_at = ?
+				 SET status = 'running', attempt_id = ?, started_at = ?, attempt_count = attempt_count + 1,
+				     max_retry = ?, timeout_at = CASE WHEN timeout_at = 0 THEN ? ELSE timeout_at END,
+				     owner_id = ?, lease_expires_at = ?
 				 WHERE current.submission_id = ? AND current.status = 'queued'
 				   AND NOT EXISTS (
 				     SELECT 1

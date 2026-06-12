@@ -711,8 +711,9 @@ class PgSubmissionStore implements AgentSubmissionStore {
 			     )
 			 )
 			 UPDATE flue_agent_submissions
-			 SET status = 'running', attempt_id = $1, started_at = $2, attempt_count = 1,
-			     max_retry = $3, timeout_at = $4, owner_id = $5, lease_expires_at = $6
+			 SET status = 'running', attempt_id = $1, started_at = $2, attempt_count = attempt_count + 1,
+			     max_retry = $3, timeout_at = CASE WHEN timeout_at = 0 THEN $4 ELSE timeout_at END,
+			     owner_id = $5, lease_expires_at = $6
 			 FROM candidate
 			 WHERE flue_agent_submissions.sequence = candidate.sequence
 			   AND flue_agent_submissions.status = 'queued'
