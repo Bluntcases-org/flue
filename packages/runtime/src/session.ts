@@ -92,7 +92,8 @@ import type {
 	CallHandle,
 	DispatchMessageMetadata,
 	FlueEvent,
-	FlueEventCallback,
+	FlueEventInput,
+	FlueEventInputCallback,
 	FlueFs,
 	FlueSession,
 	MessageEntry,
@@ -113,6 +114,7 @@ import type {
 	SkillOptions,
 	SkillReference,
 	TaskOptions,
+	TaskSessionRef,
 	ThinkingLevel,
 	ToolDefinition,
 } from './types.ts';
@@ -222,7 +224,7 @@ interface SessionInitOptions {
 	env: SessionEnv;
 	store: SessionStore;
 	existingData: SessionData | null;
-	onAgentEvent?: FlueEventCallback;
+	onAgentEvent?: FlueEventInputCallback;
 	agentTools?: ToolDefinition[];
 	toolFactory?: SessionToolFactory;
 	taskDepth?: number;
@@ -303,21 +305,12 @@ function createDispatchInputSignal(input: DispatchInput): SignalMessage {
 			dispatchId: input.dispatchId,
 			acceptedAt: input.acceptedAt,
 		},
-		data: { input: input.input },
 		timestamp: Date.now(),
 	};
 }
 
 function dispatchMetadata(input: DispatchInput): DispatchMessageMetadata {
-	const metadata: DispatchMessageMetadata = {
-		dispatchId: input.dispatchId,
-		agent: input.agent,
-		id: input.id,
-		session: 'default',
-		acceptedAt: input.acceptedAt,
-		input: input.input,
-	};
-	return metadata;
+	return { dispatchId: input.dispatchId };
 }
 
 function stableStringify(value: unknown): string {
@@ -386,6 +379,7 @@ export class Session implements FlueSession {
 	readonly fs: FlueFs;
 	metadata: Record<string, any>;
 
+	private taskSessions: TaskSessionRef[];
 	private harness: Agent;
 	private storageKey: string;
 	private affinityKey: string;
@@ -396,7 +390,7 @@ export class Session implements FlueSession {
 	private createdAt: string | undefined;
 	private compactionAbortController: AbortController | undefined;
 	private modelRetryAbortController: AbortController | undefined;
-	private eventCallback: FlueEventCallback | undefined;
+	private eventCallback: FlueEventInputCallback | undefined;
 	private agentTools: ToolDefinition[];
 	private toolFactory: SessionToolFactory | undefined;
 	private deleted = false;
@@ -497,6 +491,7 @@ export class Session implements FlueSession {
 		this.submissionStore = options.submissionStore;
 
 		this.metadata = options.existingData?.metadata ?? {};
+		this.taskSessions = options.existingData?.taskSessions ?? [];
 		this.createdAt = options.existingData?.createdAt;
 
 		this.history = SessionHistory.fromData(options.existingData);
@@ -540,11 +535,13 @@ export class Session implements FlueSession {
 					this.emit({ type: 'message_start', message: event.message });
 					break;
 				case 'message_update': {
+					// The raw pi-ai assistant event feeds the durable chunk
+					// segments used for interrupted-stream recovery; the public
+					// message_update event carries only the partial message.
 					this.activeStreamChunkWriter?.write(event.assistantMessageEvent);
 					this.emit({
 						type: 'message_update',
 						message: event.message,
-						assistantMessageEvent: event.assistantMessageEvent,
 					});
 					const aEvent = event.assistantMessageEvent;
 					if (aEvent.type === 'text_delta') {
@@ -587,7 +584,7 @@ export class Session implements FlueSession {
 					break;
 				case 'tool_execution_end':
 					this.emit({
-						type: 'tool_call',
+						type: 'tool',
 						toolName: event.toolName,
 						toolCallId: event.toolCallId,
 						isError: event.isError,
@@ -602,7 +599,7 @@ export class Session implements FlueSession {
 					this.activeTurnCanCommitJournal = true;
 					await this.checkpointHarnessMessages();
 					this.emit({
-						type: 'turn_end',
+						type: 'turn_messages',
 						turnId,
 						purpose: 'agent',
 						message: event.message,
@@ -934,7 +931,7 @@ export class Session implements FlueSession {
 					const toolResult = formatBashResult(shellResult, command);
 					await this.appendShellTriple(toolCallId, args, toolResult, false);
 					this.emit({
-						type: 'tool_call',
+						type: 'tool',
 						toolName: 'bash',
 						toolCallId,
 						isError: false,
@@ -954,7 +951,7 @@ export class Session implements FlueSession {
 					};
 					await this.appendShellTriple(toolCallId, args, errResult, true);
 					this.emit({
-						type: 'tool_call',
+						type: 'tool',
 						toolName: 'bash',
 						toolCallId,
 						isError: true,
@@ -1541,7 +1538,7 @@ export class Session implements FlueSession {
 		}
 	}
 
-	private emit(event: FlueEvent): void {
+	private emit(event: FlueEventInput): void {
 		const decorated = {
 			...redactEventImages(event),
 			session: event.session ?? this.name,
@@ -1664,7 +1661,13 @@ export class Session implements FlueSession {
 	private async save(): Promise<void> {
 		const result = this.pendingSave.then(async () => {
 			const now = new Date().toISOString();
-			const data = this.history.toData(this.affinityKey, this.metadata, this.createdAt ?? now, now);
+			const data = this.history.toData(
+				this.affinityKey,
+				this.taskSessions,
+				this.metadata,
+				this.createdAt ?? now,
+				now,
+			);
 			if (!this.createdAt) this.createdAt = now;
 			await this.store.save(this.storageKey, data);
 		});
@@ -1676,12 +1679,8 @@ export class Session implements FlueSession {
 	}
 
 	private async recordTaskSession(session: string, taskId: string): Promise<void> {
-		const taskSessions = Array.isArray(this.metadata.taskSessions)
-			? this.metadata.taskSessions
-			: [];
-		if (!taskSessions.some((task) => task?.session === session)) {
-			taskSessions.push({ session, taskId });
-			this.metadata.taskSessions = taskSessions;
+		if (!this.taskSessions.some((task) => task.session === session)) {
+			this.taskSessions.push({ session, taskId });
 			await this.save();
 		}
 	}
@@ -2400,10 +2399,7 @@ export async function deleteSessionTree(
 	if (seen.has(storageKey)) return;
 	seen.add(storageKey);
 	const data = await store.load(storageKey);
-	const taskSessions = Array.isArray(data?.metadata?.taskSessions)
-		? data.metadata.taskSessions
-		: [];
-	for (const task of taskSessions) {
+	for (const task of data?.taskSessions ?? []) {
 		const childStorageKey = childTaskSessionStorageKey(storageKey, task);
 		if (childStorageKey) await deleteSessionTree(store, childStorageKey, seen);
 	}

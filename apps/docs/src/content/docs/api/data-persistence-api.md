@@ -187,13 +187,19 @@ interface EventStreamStore {
 
 ```ts
 interface SessionData {
-  version: 5;
+  version: 6;
   affinityKey: string;
   entries: SessionEntry[];
   leafId: string | null;
+  taskSessions: TaskSessionRef[];
   metadata: Record<string, any>;
   createdAt: string;
   updatedAt: string;
+}
+
+interface TaskSessionRef {
+  session: string;
+  taskId: string;
 }
 ```
 
@@ -205,7 +211,8 @@ interface SessionData {
 | `affinityKey` | Opaque Flue-generated provider-affinity key. Persist it unchanged. |
 | `entries` | Stored message and compaction history. |
 | `leafId` | Current active leaf in the session history tree, or `null`. |
-| `metadata` | Application-visible session metadata. |
+| `taskSessions` | Framework bookkeeping: child task sessions created by delegated tasks. The recursive deletion cascade follows these references. Persist unchanged. |
+| `metadata` | Application-owned session metadata. Flue never reads or writes keys here. |
 | `createdAt` | ISO timestamp for session creation. |
 | `updatedAt` | ISO timestamp for the last persisted update. |
 

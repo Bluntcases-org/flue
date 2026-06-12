@@ -142,7 +142,7 @@ function printUsage() {
 			'  flue docs search "durable execution"\n' +
 			'  flue logs run_01H...                              # tail a workflow run\n' +
 			'  flue logs run_01H... --no-follow                  # replay a workflow run\n' +
-			'  flue logs run_01H... --types tool_call,log,run_end --format json\n' +
+			'  flue logs run_01H... --types tool,log,run_end --format json\n' +
 			'\n' +
 			'Note: set the model in `createAgent(() => ({ model: "provider-id/model-id" }))` ' +
 			'or per-call `{ model: ... }` on prompt/skill/task.',
@@ -844,7 +844,7 @@ function logEvent(event: any) {
 			break;
 		}
 
-		case 'tool_call': {
+		case 'tool': {
 			const status = event.isError ? 'error' : 'done';
 			let resultPreview = '';
 			if (event.result?.content?.[0]?.text) {
@@ -860,8 +860,7 @@ function logEvent(event: any) {
 		}
 
 		case 'turn_start':
-		case 'turn_request':
-		case 'turn_end':
+		case 'turn_messages':
 			break;
 
 		case 'turn':

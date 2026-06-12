@@ -55,7 +55,7 @@ describe('createAgentSubmissionObserverRegistry()', () => {
 		});
 
 		await expect(
-			registry.publish('direct:observer-failure', { type: 'idle', instanceId: 'agent-1' }),
+			registry.publish('direct:observer-failure', { type: 'idle', instanceId: 'agent-1', v: 1, eventIndex: 0, timestamp: '2026-06-01T00:00:00.000Z' }),
 		).resolves.toBeUndefined();
 		registry.complete('direct:observer-failure', 'done');
 
@@ -437,8 +437,9 @@ describe('dispatched session processing', () => {
 		};
 		const timestamp = '2026-06-01T00:00:00.000Z';
 		await store.save(`agent-session:${JSON.stringify([input.id, 'default', 'default'])}`, {
-			version: 5,
+			version: 6,
 			affinityKey: 'aff_01KT3P3GZGFBCKHKMQ11A7H2HW',
+			taskSessions: [],
 			entries: [
 				{
 					type: 'message',
@@ -490,8 +491,9 @@ describe('dispatched session processing', () => {
 		};
 		const timestamp = '2026-06-01T00:00:00.000Z';
 		await store.save(`agent-session:${JSON.stringify([input.id, 'default', 'default'])}`, {
-			version: 5,
+			version: 6,
 			affinityKey: 'aff_01KT3P3GZGFBCKHKMQ11A7H2HW',
+			taskSessions: [],
 			entries: [
 				{
 					type: 'message',
@@ -499,7 +501,7 @@ describe('dispatched session processing', () => {
 					parentId: null,
 					timestamp,
 					message: { role: 'user', content: [{ type: 'text', text: 'persisted dispatch' }], timestamp: 0 },
-					dispatch: { ...input, session: 'default' },
+					dispatch: { dispatchId: input.dispatchId },
 				},
 				{
 					type: 'message',
@@ -544,8 +546,9 @@ describe('dispatched session processing', () => {
 		};
 		const timestamp = '2026-06-01T00:00:00.000Z';
 		await store.save(`agent-session:${JSON.stringify([input.id, 'default', 'default'])}`, {
-			version: 5,
+			version: 6,
 			affinityKey: 'aff_01KT3P3GZGFBCKHKMQ11A7H2HW',
+			taskSessions: [],
 			entries: [
 				{
 					type: 'message',
@@ -553,7 +556,7 @@ describe('dispatched session processing', () => {
 					parentId: null,
 					timestamp,
 					message: { role: 'user', content: [{ type: 'text', text: 'persisted dispatch' }], timestamp: 0 },
-					dispatch: { ...input, session: 'default' },
+					dispatch: { dispatchId: input.dispatchId },
 				},
 			],
 			leafId: 'dispatch-input',
@@ -601,14 +604,7 @@ describe('repairInterruptedToolCalls()', () => {
 			parentId: leafId,
 			timestamp: now,
 			message: { role: 'user', content: 'Run the tools.', timestamp: Date.now() } as any,
-			dispatch: {
-				dispatchId,
-				agent: 'moderator',
-				id: instanceId,
-				session: sessionName,
-				acceptedAt: now,
-				input: { type: 'flagged' },
-			},
+			dispatch: { dispatchId },
 		});
 		leafId = userId;
 
@@ -659,10 +655,11 @@ describe('repairInterruptedToolCalls()', () => {
 
 		return {
 			data: {
-				version: 5,
+				version: 6,
 				affinityKey: generateSessionAffinityKey(),
 				entries,
 				leafId,
+				taskSessions: [],
 				metadata: {},
 				createdAt: now,
 				updatedAt: now,

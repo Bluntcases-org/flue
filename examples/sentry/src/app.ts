@@ -39,7 +39,7 @@
  *   - It does not capture per-operation or per-tool failures. Those are
  *     usually recoverable (the model handles tool errors and keeps
  *     going), so capturing them tends to be noise. If you want them,
- *     uncomment the `operation` / `tool_call` branches inside the
+ *     uncomment the `operation` / `tool` branches inside the
  *     `observe(...)` callback below.
  *
  *
@@ -176,7 +176,7 @@ observe((event) => {
 	// handler did NOT catch, the same error propagates up to
 	// `run_end` above and is captured there.
 	//
-	// `tool_call` events with `isError: true` represent a tool body
+	// `tool` events with `isError: true` represent a tool body
 	// that threw or returned an error. The model usually keeps
 	// going with the error result and recovers. Capturing every
 	// tool error would drown out real incidents. Add a branch here
@@ -186,7 +186,7 @@ observe((event) => {
 	// Uncomment to enable:
 	//
 	//   if (event.type === 'operation' && event.isError) { ... }
-	//   if (event.type === 'tool_call' && event.isError) { ... }
+	//   if (event.type === 'tool' && event.isError) { ... }
 });
 
 // ─── Helpers ────────────────────────────────────────────────────────────────

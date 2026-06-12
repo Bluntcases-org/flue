@@ -13,6 +13,7 @@ import {
 } from '../runtime/agent-submissions.ts';
 import type { CreateContextFn } from '../runtime/handle-agent.ts';
 import { agentStreamPath } from '../runtime/event-stream-store.ts';
+import { isStreamExcludedEvent } from '../runtime/run-store.ts';
 import type { DispatchInput, DispatchQueue } from '../runtime/dispatch-queue.ts';
 
 export interface NodeAgentCoordinator {
@@ -143,6 +144,7 @@ export function createNodeAgentCoordinator(options: {
 			// createStream is called before processSubmission (see spawnSubmissionTask).
 			const streamPath = agentStreamPath(input.agent, input.id);
 			ctx.subscribeEvent((event) => {
+				if (isStreamExcludedEvent(event)) return;
 				eventStreamStore.appendEvent(streamPath, event).catch((error) => {
 					console.error('[flue:event-stream] appendEvent failed:', error);
 				});

@@ -433,8 +433,9 @@ describe('session.prompt()', () => {
 		const store = new RecordingSessionStore();
 		const timestamp = '2026-06-01T00:00:00.000Z';
 		await store.save('agent-session:["session-operations-instance","default","default"]', {
-			version: 5,
+			version: 6,
 			affinityKey: 'aff_01KT3P3GZGFBCKHKMQ11A7H2HW',
+			taskSessions: [],
 			entries: [
 				{
 					type: 'message',
@@ -783,7 +784,7 @@ describe('session.task()', () => {
 				const parent = store.records.get(
 					'agent-session:["session-operations-instance","default","default"]',
 				);
-				expect(parent?.metadata.taskSessions).toContainEqual({
+				expect(parent?.taskSessions).toContainEqual({
 					session: expect.stringMatching(/^task:default:/),
 					taskId: expect.any(String),
 				});
@@ -827,8 +828,8 @@ describe('session.task()', () => {
 		const parent = store.records.get(
 			'agent-session:["session-operations-instance","default","default"]',
 		);
-		expect(parent?.metadata.taskSessions).toHaveLength(2);
-		expect(parent?.metadata.taskSessions).toEqual([
+		expect(parent?.taskSessions).toHaveLength(2);
+		expect(parent?.taskSessions).toEqual([
 			{ session: expect.stringMatching(/^task:default:/), taskId: expect.any(String) },
 			{ session: expect.stringMatching(/^task:default:/), taskId: expect.any(String) },
 		]);
@@ -866,22 +867,26 @@ describe('session.task()', () => {
 		const parentKey = 'agent-session:["session-operations-instance","default","default"]';
 		const unrelatedKey = 'agent-session:["session-operations-instance","default","unrelated"]';
 		const parent = store.records.get(parentKey);
-		const task = parent?.metadata.taskSessions[0];
+		const task = parent?.taskSessions[0] as { session: string; taskId: string };
 		await store.save(unrelatedKey, {
-			version: 5,
+			version: 6,
 			affinityKey: 'aff_01J00000000000000000000000',
 			entries: [],
 			leafId: null,
+			taskSessions: [],
 			metadata: {},
 			createdAt: '2026-06-02T00:00:00.000Z',
 			updatedAt: '2026-06-02T00:00:00.000Z',
 		});
-		task.storageKey = unrelatedKey;
+		task.session = 'unrelated';
 		await store.save(parentKey, parent as SessionData);
 
 		await session.delete();
 
-		expect([...store.records.keys()]).toEqual([unrelatedKey]);
+		// The tampered relationship fails the task-session name validation, so
+		// the cascade does not follow it into the unrelated session.
+		expect(store.records.has(unrelatedKey)).toBe(true);
+		expect(store.records.has(parentKey)).toBe(false);
 	});
 
 	it('rejects recursive delegation when task depth exceeds the supported limit', async () => {

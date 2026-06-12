@@ -11,6 +11,7 @@ import type {
 	SessionEntry,
 	SignalMessage,
 	PromptImage,
+	TaskSessionRef,
 } from './types.ts';
 
 export interface ContextEntry {
@@ -43,7 +44,7 @@ export class SessionHistory {
 
 	static fromData(data: SessionData | null): SessionHistory {
 		if (!data) return SessionHistory.empty();
-		if (data.version !== 5) {
+		if (data.version !== 6) {
 			throw new Error(
 				`[flue] Session data version ${String(data.version)} is unsupported. Clear persisted session state created by an earlier Flue beta.`,
 			);
@@ -196,15 +197,17 @@ export class SessionHistory {
 
 	toData(
 		affinityKey: string,
+		taskSessions: TaskSessionRef[],
 		metadata: Record<string, any>,
 		createdAt: string,
 		updatedAt: string,
 	): SessionData {
 		return {
-			version: 5,
+			version: 6,
 			affinityKey,
 			entries: [...this.entries],
 			leafId: this.leafId,
+			taskSessions: [...taskSessions],
 			metadata,
 			createdAt,
 			updatedAt,

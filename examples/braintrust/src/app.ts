@@ -112,7 +112,7 @@ observe((event) => {
 		tools.set(toolKey(event), parent ? parent.startSpan(args) : logger.startSpan(args));
 		return;
 	}
-	if (event.type === 'tool_call') {
+	if (event.type === 'tool') {
 		const key = toolKey(event);
 		const span = tools.get(key);
 		if (!span) return;

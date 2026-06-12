@@ -51,7 +51,7 @@ The bridge uses:
 | `run_start` / `run_end`           | root `task` span          |
 | `operation_start` / `operation`   | nested `task` span        |
 | `turn_request` / `turn`           | nested `llm` span         |
-| `tool_start` / `tool_call`        | nested `tool` span        |
+| `tool_start` / `tool`        | nested `tool` span        |
 | `task_start` / `task`             | nested `task` span        |
 | `compaction_start` / `compaction` | nested `task` span        |
 

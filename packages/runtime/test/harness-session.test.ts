@@ -111,10 +111,11 @@ describe('FlueHarness', () => {
 			expect(created.name).toBe('default');
 			expect(reopened).toBe(created);
 			expect(store.peek('agent-session:["agent-instance","default","default"]')).toMatchObject({
-				version: 5,
+				version: 6,
 				affinityKey: expect.stringMatching(/^aff_[0-9A-HJKMNP-TV-Z]{26}$/),
 				entries: [],
 				leafId: null,
+				taskSessions: [],
 			});
 		});
 
@@ -141,10 +142,11 @@ describe('FlueHarness', () => {
 		it('rejects malformed persisted session affinity keys', async () => {
 			const store = new TrackingSessionStore();
 			await store.save('agent-session:["agent-instance","default","review"]', {
-				version: 5,
+				version: 6,
 				affinityKey: ['aff_01J00000000000000000000000'],
 				entries: [],
 				leafId: null,
+				taskSessions: [],
 				metadata: {},
 				createdAt: '2026-06-02T00:00:00.000Z',
 				updatedAt: '2026-06-02T00:00:00.000Z',
@@ -161,10 +163,11 @@ describe('FlueHarness', () => {
 		it('rejects persisted session affinity keys with overflowing ULID timestamps', async () => {
 			const store = new TrackingSessionStore();
 			await store.save('agent-session:["agent-instance","default","review"]', {
-				version: 5,
+				version: 6,
 				affinityKey: 'aff_ZZZZZZZZZZZZZZZZZZZZZZZZZZ',
 				entries: [],
 				leafId: null,
+				taskSessions: [],
 				metadata: {},
 				createdAt: '2026-06-02T00:00:00.000Z',
 				updatedAt: '2026-06-02T00:00:00.000Z',

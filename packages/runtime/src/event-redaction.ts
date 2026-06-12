@@ -1,5 +1,5 @@
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
-import type { FlueEvent } from './types.ts';
+import type { FlueEventInput } from './types.ts';
 
 /**
  * Sentinel that replaces raw base64 image bytes in event payloads. Events keep
@@ -18,7 +18,7 @@ export const IMAGE_DATA_OMITTED = '[image data omitted from event]';
  * events are the live objects in the agent harness state — mutating them in
  * place would corrupt the model context and persisted session history.
  */
-export function redactEventImages(event: FlueEvent): FlueEvent {
+export function redactEventImages(event: FlueEventInput): FlueEventInput {
 	switch (event.type) {
 		case 'message_start':
 		case 'message_update':
@@ -26,7 +26,7 @@ export function redactEventImages(event: FlueEvent): FlueEvent {
 			const message = redactMessageImages(event.message);
 			return message === event.message ? event : { ...event, message };
 		}
-		case 'turn_end': {
+		case 'turn_messages': {
 			const message = redactMessageImages(event.message);
 			const toolResults = redactEachMessageImages(event.toolResults);
 			if (message === event.message && toolResults === event.toolResults) return event;
@@ -36,7 +36,7 @@ export function redactEventImages(event: FlueEvent): FlueEvent {
 			const messages = redactEachMessageImages(event.messages);
 			return messages === event.messages ? event : { ...event, messages };
 		}
-		case 'tool_call': {
+		case 'tool': {
 			const result = redactToolResultImages(event.result);
 			return result === event.result ? event : { ...event, result };
 		}

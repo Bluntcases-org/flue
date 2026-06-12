@@ -161,8 +161,9 @@ describe('createSqlAgentExecutionStore()', () => {
 		const store = createSqlSessionStore({ sql, transactionSync });
 		const imageData = 'a'.repeat(IMAGE_DATA_CHUNK_LENGTH + 7);
 		const data = {
-			version: 5 as const,
+			version: 6 as const,
 			affinityKey: 'aff_00000000000000000000000000',
+			taskSessions: [],
 			entries: [{ type: 'message' as const, id: 'entry-1', parentId: null, timestamp: '2026-06-03T00:00:00.000Z', message: { role: 'user' as const, content: [{ type: 'image' as const, data: imageData, mimeType: 'image/png' }], timestamp: 0 } }],
 			leafId: 'entry-1', metadata: {}, createdAt: '2026-06-03T00:00:00.000Z', updatedAt: '2026-06-03T00:00:00.000Z',
 		};
@@ -191,8 +192,9 @@ describe('createSqlAgentExecutionStore()', () => {
 		const store = createSqlSessionStore({ sql, transactionSync });
 		const imageData = '😀'.repeat(IMAGE_DATA_CHUNK_LENGTH / 2 + 1);
 		const data = {
-			version: 5 as const,
+			version: 6 as const,
 			affinityKey: 'aff_00000000000000000000000000',
+			taskSessions: [],
 			entries: [{
 				type: 'message' as const,
 				id: 'unicode-entry',
@@ -284,8 +286,9 @@ describe('createSqlAgentExecutionStore()', () => {
 		const { sql, transactionSync } = makeFakeSql();
 		const store = createSqlSessionStore({ sql, transactionSync });
 		const data = {
-			version: 5 as const,
+			version: 6 as const,
 			affinityKey: 'aff_00000000000000000000000000',
+			taskSessions: [],
 			entries: [{
 				type: 'message' as const,
 				id: 'tool-entry',
@@ -313,8 +316,9 @@ describe('createSqlAgentExecutionStore()', () => {
 		const { db, sql, transactionSync } = makeFakeSql();
 		const store = createSqlSessionStore({ sql, transactionSync });
 		const data = {
-			version: 5 as const,
+			version: 6 as const,
 			affinityKey: 'aff_00000000000000000000000000',
+			taskSessions: [],
 			entries: [{
 				type: 'message' as const,
 				id: 'entry-1',
@@ -340,8 +344,9 @@ describe('createSqlAgentExecutionStore()', () => {
 		const { db, sql, transactionSync } = makeFakeSql();
 		const store = createSqlSessionStore({ sql, transactionSync });
 		const data = {
-			version: 5 as const,
+			version: 6 as const,
 			affinityKey: 'aff_00000000000000000000000000',
+			taskSessions: [],
 			entries: [{
 				type: 'message' as const,
 				id: 'entry-1',
@@ -371,8 +376,9 @@ describe('createSqlAgentExecutionStore()', () => {
 		const { db, sql, transactionSync } = makeFakeSql();
 		const store = createSqlSessionStore({ sql, transactionSync });
 		const createData = (entryId: string, imageData: string) => ({
-			version: 5 as const,
+			version: 6 as const,
 			affinityKey: 'aff_00000000000000000000000000',
+			taskSessions: [],
 			entries: [{
 				type: 'message' as const,
 				id: entryId,
@@ -401,7 +407,7 @@ describe('createSqlAgentExecutionStore()', () => {
 	it('rejects persisted session images over the encoded length limit', async () => {
 		const { sql, transactionSync } = makeFakeSql();
 		const store = createSqlSessionStore({ sql, transactionSync });
-		await expect(store.save('session-1', { version: 5, affinityKey: 'aff_00000000000000000000000000', entries: [{ type: 'message', id: 'entry-1', parentId: null, timestamp: '2026-06-03T00:00:00.000Z', message: { role: 'user', content: [{ type: 'image', data: 'a'.repeat(14 * 1024 * 1024 + 1), mimeType: 'image/png' }], timestamp: 0 } }], leafId: 'entry-1', metadata: {}, createdAt: '2026-06-03T00:00:00.000Z', updatedAt: '2026-06-03T00:00:00.000Z' })).rejects.toThrow('Image data exceeds');
+		await expect(store.save('session-1', { version: 6, taskSessions: [], affinityKey: 'aff_00000000000000000000000000', entries: [{ type: 'message', id: 'entry-1', parentId: null, timestamp: '2026-06-03T00:00:00.000Z', message: { role: 'user', content: [{ type: 'image', data: 'a'.repeat(14 * 1024 * 1024 + 1), mimeType: 'image/png' }], timestamp: 0 } }], leafId: 'entry-1', metadata: {}, createdAt: '2026-06-03T00:00:00.000Z', updatedAt: '2026-06-03T00:00:00.000Z' })).rejects.toThrow('Image data exceeds');
 	});
 
 	it('ensures only one SQL row per replayed dispatch admission', async () => {

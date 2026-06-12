@@ -10,6 +10,7 @@ import {
 } from '../runtime/agent-submissions.ts';
 import { assertAgentDispatchAdmissionInput, handleAgentRequest } from '../runtime/handle-agent.ts';
 import { agentStreamPath } from '../runtime/event-stream-store.ts';
+import { isStreamExcludedEvent } from '../runtime/run-store.ts';
 import { handleStreamHead, handleStreamRead } from '../runtime/handle-stream-routes.ts';
 import { deleteSessionTree } from '../session.ts';
 import type { AttachedAgentEvent, DirectAgentPayload } from '../types.ts';
@@ -473,6 +474,7 @@ class CloudflareAgentCoordinator {
 				const ctx = this.createContext(payload, submissionSyntheticRequest(submission.input), undefined, dispatchId);
 				const streamPath = agentStreamPath(this.agentName, this.instance.name);
 				ctx.subscribeEvent((event) => {
+					if (isStreamExcludedEvent(event)) return;
 					eventStreamStore.appendEvent(streamPath, event).catch((error) => {
 						console.error('[flue:event-stream] appendEvent failed:', error);
 					});

@@ -423,8 +423,9 @@ leaseExpiresAt: 1,
 			const storageKey = createSessionStorageKey('instance-1', 'default', 'default');
 			const now = new Date().toISOString();
 			await store.sessions.save(storageKey, {
-				version: 5,
+				version: 6,
 				affinityKey: generateSessionAffinityKey(),
+				taskSessions: [],
 				entries: [
 					{
 						type: 'message',
@@ -432,14 +433,7 @@ leaseExpiresAt: 1,
 						parentId: null,
 						timestamp: now,
 						message: { role: 'user', content: 'Run the tool.', timestamp: Date.now() } as any,
-						dispatch: {
-							dispatchId: input.dispatchId,
-							agent: 'assistant',
-							id: 'instance-1',
-							session: 'default',
-							acceptedAt: now,
-							input: { message: 'Hello' },
-						},
+						dispatch: { dispatchId: input.dispatchId },
 					},
 					{
 						type: 'message',
@@ -540,8 +534,9 @@ leaseExpiresAt: 1,
 			const storageKey = createSessionStorageKey('instance-1', 'default', 'default');
 			const now = new Date().toISOString();
 			await store.sessions.save(storageKey, {
-				version: 5,
+				version: 6,
 				affinityKey: generateSessionAffinityKey(),
+				taskSessions: [],
 				entries: [
 					{
 						type: 'message',
@@ -549,14 +544,7 @@ leaseExpiresAt: 1,
 						parentId: null,
 						timestamp: now,
 						message: { role: 'user', content: 'Run the tools.', timestamp: Date.now() } as any,
-						dispatch: {
-							dispatchId: input.dispatchId,
-							agent: 'assistant',
-							id: 'instance-1',
-							session: 'default',
-							acceptedAt: now,
-							input: { message: 'Hello' },
-						},
+						dispatch: { dispatchId: input.dispatchId },
 					},
 					{
 						type: 'message',
@@ -690,8 +678,9 @@ leaseExpiresAt: 1,
 			const store = openExecutionStore(dbPath);
 			const sessionKey = createSessionStorageKey('instance-1', 'default', 'default');
 			await store.sessions.save(sessionKey, {
-				version: 5,
+				version: 6,
 				affinityKey: generateSessionAffinityKey(),
+				taskSessions: [],
 				entries: [],
 				leafId: null,
 				metadata: {},

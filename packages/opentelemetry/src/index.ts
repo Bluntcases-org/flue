@@ -234,7 +234,7 @@ export function createOpenTelemetryObserver(
 			);
 			return;
 		}
-		if (event.type === 'tool_call') {
+		if (event.type === 'tool') {
 			const span = tools.get(toolKey(event));
 			if (!span) return;
 			const exportedEvent = sanitizeEvent(sanitize, event);
@@ -483,7 +483,6 @@ function identifiers(event: FlueEvent): Attributes {
 }
 
 function eventIndexAttribute(scope: 'start' | 'end' | 'index', event: FlueEvent): Attributes {
-	if (event.eventIndex === undefined) return {};
 	return {
 		[scope === 'index' ? 'flue.event.index' : `flue.event.${scope}_index`]: event.eventIndex,
 	};
@@ -557,5 +556,5 @@ function safeJson(value: unknown): string {
 }
 
 function timestamp(event: FlueEvent): Date {
-	return event.timestamp ? new Date(event.timestamp) : new Date();
+	return new Date(event.timestamp);
 }

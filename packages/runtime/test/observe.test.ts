@@ -35,6 +35,7 @@ describe('observe()', () => {
 				{
 					type: 'idle',
 					instanceId: 'observe-decorated-event',
+					v: 1,
 					eventIndex: 0,
 					timestamp: expect.any(String),
 				},

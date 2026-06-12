@@ -18,6 +18,7 @@ import type {
 	FlueContext,
 	FlueEvent,
 	FlueEventCallback,
+	FlueEventInput,
 	FlueHarness,
 	SandboxFactory,
 	SessionEnv,
@@ -57,7 +58,7 @@ export interface FlueContextInternal extends FlueContext {
 		payload: unknown,
 		options?: AgentHarnessOptions,
 	): Promise<FlueHarness>;
-	emitEvent(event: FlueEvent): FlueEvent;
+	emitEvent(event: FlueEventInput): FlueEvent;
 	subscribeEvent(callback: FlueEventCallback): () => void;
 	setEventCallback(callback: FlueEventCallback | undefined): void;
 }
@@ -68,11 +69,12 @@ export function createFlueContext(config: FlueContextConfig): FlueContextInterna
 	let eventIndex = config.initialEventIndex ?? 0;
 	const initializedHarnessNames = new Set<string>();
 
-	const emitEvent = (event: FlueEvent): FlueEvent => {
+	const emitEvent = (event: FlueEventInput): FlueEvent => {
 		const decorated: FlueEvent = {
 			...event,
 			...(config.runId === undefined ? { instanceId: config.id } : { runId: config.runId }),
 			...(config.dispatchId === undefined ? {} : { dispatchId: config.dispatchId }),
+			v: 1,
 			eventIndex: eventIndex++,
 			timestamp: new Date().toISOString(),
 		};

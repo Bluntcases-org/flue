@@ -7,7 +7,6 @@ export interface SignalMessage {
 	tagName?: string;
 	content: string;
 	attributes?: Record<string, string>;
-	data?: Record<string, unknown>;
 	timestamp: number;
 }
 
@@ -695,14 +694,29 @@ export interface PromptResultResponse<T> {
 // ─── Session Store ──────────────────────────────────────────────────────────
 
 export interface SessionData {
-	version: 5;
+	version: 6;
 	/** Opaque stable provider-facing identity used for prompt caching and routing affinity. */
 	affinityKey: string;
 	entries: SessionEntry[];
 	leafId: string | null;
+	/**
+	 * Child task sessions created by this session's delegated tasks. Framework
+	 * bookkeeping: the recursive deletion cascade uses these references to
+	 * remove child task-session storage with the parent.
+	 */
+	taskSessions: TaskSessionRef[];
+	/** Application-owned session metadata. Flue never reads or writes keys here. */
 	metadata: Record<string, any>;
 	createdAt: string;
 	updatedAt: string;
+}
+
+/** Reference from a parent session to a child task session. */
+export interface TaskSessionRef {
+	/** Child task-session name (`task:<parentSession>:<taskId>`). */
+	session: string;
+	/** Task id that created the child session. */
+	taskId: string;
 }
 
 export type SessionEntry = MessageEntry | CompactionEntry;
@@ -732,14 +746,13 @@ interface SubmissionTerminalMetadata {
 		| 'exceeded_timeout';
 }
 
+/**
+ * Replay-matching metadata for a dispatched-input entry. The dispatch payload
+ * and identity attributes live in the entry's rendered signal message — this
+ * carries only the id used to find the entry again.
+ */
 export interface DispatchMessageMetadata {
 	dispatchId: string;
-	agent: string;
-	id: string;
-	/** Always `'default'`: dispatched inputs target the default session. */
-	session: string;
-	acceptedAt: string;
-	input: unknown;
 }
 
 export interface CompactionEntry extends SessionEntryBase {
@@ -941,28 +954,7 @@ export type LlmTool = {
 
 export type LlmTurnPurpose = 'agent' | 'compaction' | 'compaction_prefix';
 
-/**
- * Observable runtime activity. Workflow events carry `runId`; direct and
- * dispatched agent activity carries `instanceId` without becoming a workflow
- * run. Dispatched activity may also carry `dispatchId`.
- *
- * Correlation fields are optional on the shared union because events are
- * constructed before transport-specific decoration. Runtime-emitted events are
- * decorated with a per-context `eventIndex` and `timestamp`. Harnesses and
- * sessions add their names where applicable; operations, turns, tasks, and tool
- * calls use generated ids.
- *
- * Persisted workflow events always carry `runId` and `eventIndex`; together they
- * form the immutable persisted identity for one workflow event. Attached-agent
- * streams and `observe()` from `@flue/runtime` deliver live activity; their
- * indexes are per-context ordering, not durable identity.
- *
- * Events never carry raw image bytes. Image content blocks in event payloads
- * keep their `mimeType` but have `data` replaced with the exported
- * `IMAGE_DATA_OMITTED` sentinel. Session history retains the real bytes for
- * model context.
- */
-export type FlueEvent = (
+type FlueEventVariant = (
 	| {
 			type: 'run_start';
 			runId: string;
@@ -994,14 +986,14 @@ export type FlueEvent = (
 			reasoning?: string;
 	  }
 	| {
-			type: 'turn_end';
+			type: 'turn_messages';
 			turnId: string;
 			purpose: LlmTurnPurpose;
 			message: AgentMessage;
 			toolResults: AgentMessage[];
 	  }
 	| { type: 'message_start'; message: AgentMessage }
-	| { type: 'message_update'; message: AgentMessage; assistantMessageEvent: unknown }
+	| { type: 'message_update'; message: AgentMessage }
 	| { type: 'message_end'; message: AgentMessage }
 	| { type: 'text_delta'; text: string }
 	| { type: 'thinking_start' }
@@ -1009,7 +1001,7 @@ export type FlueEvent = (
 	| { type: 'thinking_end'; content: string }
 	| { type: 'tool_start'; toolName: string; toolCallId: string; args?: any }
 	| {
-			type: 'tool_call';
+			type: 'tool';
 			toolName: string;
 			toolCallId: string;
 			isError: boolean;
@@ -1083,18 +1075,55 @@ export type FlueEvent = (
 			error?: unknown;
 			durationMs: number;
 	  }
-) & {
+);
+
+/**
+ * Event payload as constructed at an emission site, before runtime decoration.
+ *
+ * Internal construction shape: harnesses and sessions add their names where
+ * applicable, and the per-context emit path stamps the delivered envelope
+ * fields (`v`, `eventIndex`, `timestamp`) before any subscriber, stream, or
+ * store sees the event. Consumers always receive the decorated
+ * {@link FlueEvent}.
+ */
+export type FlueEventInput = FlueEventVariant & {
 	runId?: string;
 	instanceId?: string;
 	dispatchId?: string;
-	eventIndex?: number;
-	timestamp?: string;
 	session?: string;
 	parentSession?: string;
 	taskId?: string;
 	harness?: string;
 	operationId?: string;
 	turnId?: string;
+};
+
+/**
+ * Observable runtime activity. Workflow events carry `runId`; direct and
+ * dispatched agent activity carries `instanceId` without becoming a workflow
+ * run. Dispatched activity may also carry `dispatchId`.
+ *
+ * Every delivered event carries the durable event-format version `v`, a
+ * per-context `eventIndex`, and a `timestamp`. Harnesses and sessions add
+ * their names where applicable; operations, turns, tasks, and tool calls use
+ * generated ids — those correlation fields are optional because they apply
+ * only to the activity they describe.
+ *
+ * Persisted workflow events always carry `runId` and `eventIndex`; together they
+ * form the immutable persisted identity for one workflow event. Attached-agent
+ * streams and `observe()` from `@flue/runtime` deliver live activity; their
+ * indexes are per-context ordering, not durable identity.
+ *
+ * Events never carry raw image bytes. Image content blocks in event payloads
+ * keep their `mimeType` but have `data` replaced with the exported
+ * `IMAGE_DATA_OMITTED` sentinel. Session history retains the real bytes for
+ * model context.
+ */
+export type FlueEvent = FlueEventInput & {
+	/** Durable event-format version. Readers branch on this when the format changes. */
+	v: 1;
+	eventIndex: number;
+	timestamp: string;
 };
 
 /**
@@ -1109,6 +1138,9 @@ export type AttachedAgentEvent = Exclude<
 	runId?: never;
 	instanceId: string;
 };
+
+/** Internal pre-decoration event callback (Session → Harness → context emit chain). */
+export type FlueEventInputCallback = (event: FlueEventInput) => void | Promise<void>;
 
 export type FlueEventCallback = (event: FlueEvent) => void | Promise<void>;
 export type AttachedAgentEventCallback = (event: AttachedAgentEvent) => void | Promise<void>;

@@ -19,7 +19,7 @@ import type { DispatchInput } from './dispatch-queue.ts';
 import { agentStreamPath, parseOffset, runStreamPath, type EventStreamStore } from './event-stream-store.ts';
 
 import { generateWorkflowRunId } from './ids.ts';
-import { isEphemeralRunEvent, type RunStore } from './run-store.ts';
+import { isEphemeralRunEvent, isStreamExcludedEvent, type RunStore } from './run-store.ts';
 import { DirectAgentPayloadSchema } from './schemas.ts';
 
 
@@ -745,6 +745,7 @@ function subscribeRunFanout(lifecycle: WorkflowRunLifecycle): () => Promise<void
 	// ── Subscription ────────────────────────────────────────────────────
 	const unsubscribe = ctx.subscribeEvent((event) => {
 		if (event.type === 'run_end') return;
+		if (isStreamExcludedEvent(event)) return;
 		if (isEphemeralRunEvent(event)) {
 			// Snapshot at emit time: ephemeral events carry live message
 			// objects that the streaming turn keeps mutating in place, so a

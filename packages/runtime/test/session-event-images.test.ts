@@ -133,7 +133,7 @@ describe('session event image redaction', () => {
 		expect(JSON.stringify(turnRequest)).not.toContain(IMAGE_BYTES);
 	});
 
-	it('omits connector tool-result image bytes from tool_call and turn_end events when a tool returns an image', async () => {
+	it('omits connector tool-result image bytes from tool and turn_messages events when a tool returns an image', async () => {
 		const provider = createProvider();
 		provider.setResponses([
 			fauxAssistantMessage(fauxToolCall('screenshot', {}), { stopReason: 'toolUse' }),
@@ -170,15 +170,15 @@ describe('session event image redaction', () => {
 
 		expect(JSON.stringify(events)).not.toContain(IMAGE_BYTES);
 		const toolCall = events.find(
-			(event): event is Extract<FlueEvent, { type: 'tool_call' }> =>
-				event.type === 'tool_call' && event.toolName === 'screenshot',
+			(event): event is Extract<FlueEvent, { type: 'tool' }> =>
+				event.type === 'tool' && event.toolName === 'screenshot',
 		);
 		expect(toolCall?.result.content).toEqual([
 			{ type: 'image', data: IMAGE_DATA_OMITTED, mimeType: 'image/png' },
 		]);
 		const turnEnd = events.find(
-			(event): event is Extract<FlueEvent, { type: 'turn_end' }> =>
-				event.type === 'turn_end' && event.toolResults.length > 0,
+			(event): event is Extract<FlueEvent, { type: 'turn_messages' }> =>
+				event.type === 'turn_messages' && event.toolResults.length > 0,
 		);
 		const toolResultMessage = turnEnd?.toolResults.find(
 			(message): message is Extract<AgentMessage, { role: 'toolResult' }> =>

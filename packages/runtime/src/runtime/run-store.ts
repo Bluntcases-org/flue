@@ -147,3 +147,21 @@ const EPHEMERAL_RUN_EVENT_TYPES: ReadonlySet<FlueEvent['type']> = new Set([
 export function isEphemeralRunEvent(event: FlueEvent): boolean {
 	return EPHEMERAL_RUN_EVENT_TYPES.has(event.type);
 }
+
+/**
+ * Events excluded from durable streams entirely: never persisted and never
+ * served over HTTP, on agent streams and run streams alike. In-process
+ * delivery is unaffected — `observe()` subscribers and exporters such as
+ * `@flue/opentelemetry` receive these events with full fidelity.
+ *
+ * `turn_request` re-serializes the full system prompt, the entire message
+ * history, and all tool schemas on every model turn; persisting it grows
+ * stream storage quadratically with conversation length and exposes full
+ * prompts to every stream reader. Production prompt forensics belongs to an
+ * exporter-side content-export opt-in, not the primary database.
+ */
+const STREAM_EXCLUDED_EVENT_TYPES: ReadonlySet<FlueEvent['type']> = new Set(['turn_request']);
+
+export function isStreamExcludedEvent(event: FlueEvent): boolean {
+	return STREAM_EXCLUDED_EVENT_TYPES.has(event.type);
+}

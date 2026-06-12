@@ -16,8 +16,8 @@ import type {
 	AgentConfig,
 	AgentProfile,
 	CallHandle,
-	FlueEvent,
-	FlueEventCallback,
+	FlueEventInput,
+	FlueEventInputCallback,
 	FlueFs,
 	FlueHarness,
 	FlueSession,
@@ -53,7 +53,7 @@ export class Harness implements FlueHarness {
 		private config: AgentConfig,
 		private env: SessionEnv,
 		private store: SessionStore,
-		private eventCallback?: FlueEventCallback,
+		private eventCallback?: FlueEventInputCallback,
 		private agentTools: ToolDefinition[] = [],
 		private toolFactory?: SessionToolFactory,
 		private submissionStore?: AgentSubmissionStore,
@@ -86,7 +86,7 @@ export class Harness implements FlueHarness {
 					exitCode: result.exitCode,
 				};
 				this.emit({
-					type: 'tool_call',
+					type: 'tool',
 					toolName: 'bash',
 					toolCallId,
 					isError: false,
@@ -100,7 +100,7 @@ export class Harness implements FlueHarness {
 					details: { command, exitCode: -1 },
 				};
 				this.emit({
-					type: 'tool_call',
+					type: 'tool',
 					toolName: 'bash',
 					toolCallId,
 					isError: true,
@@ -228,15 +228,11 @@ export class Harness implements FlueHarness {
 			compaction: taskAgent?.compaction ?? this.config.compaction,
 		};
 		const storageKey = createSessionStorageKey(this.instanceId, this.name, sessionName);
+		// `metadata` is application-owned; the parent→child relationship is
+		// carried by the parent's typed `taskSessions` field, and task/parent
+		// correlation flows through event decoration below.
 		const data = createEmptySessionData();
-		data.metadata = {
-			parentSession: options.parentSession,
-			taskId: options.taskId,
-			cwd: taskEnv.cwd,
-			agent: taskAgent?.name,
-			depth: options.depth,
-		};
-		const eventCallback: FlueEventCallback | undefined = this.eventCallback
+		const eventCallback: FlueEventInputCallback | undefined = this.eventCallback
 			? (event) => {
 					this.eventCallback?.({
 						...event,
@@ -263,13 +259,13 @@ export class Harness implements FlueHarness {
 		});
 	}
 
-	private emit(event: FlueEvent): void {
+	private emit(event: FlueEventInput): void {
 		this.eventCallback?.({ ...event, harness: event.harness ?? this.name });
 	}
 
 	private decorateEventCallback(
-		callback: FlueEventCallback | undefined,
-	): FlueEventCallback | undefined {
+		callback: FlueEventInputCallback | undefined,
+	): FlueEventInputCallback | undefined {
 		return callback
 			? (event) => {
 					callback({ ...event, harness: event.harness ?? this.name });
@@ -293,10 +289,11 @@ function normalizeSessionName(name: string | undefined): string {
 function createEmptySessionData(): SessionData {
 	const now = new Date().toISOString();
 	return {
-		version: 5,
+		version: 6,
 		affinityKey: generateSessionAffinityKey(),
 		entries: [],
 		leafId: null,
+		taskSessions: [],
 		metadata: {},
 		createdAt: now,
 		updatedAt: now,

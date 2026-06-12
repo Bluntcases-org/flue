@@ -1,7 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { Hono } from 'hono';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { FlueRuntime } from '../src/internal.ts';
+import type { FlueContextInternal, FlueRuntime } from '../src/internal.ts';
 import {
 	configureFlueRuntime,
 	createFlueContext,
@@ -371,6 +371,52 @@ describe('workflow run lifecycle', () => {
 		} finally {
 			consoleError.mockRestore();
 		}
+	});
+
+	it('excludes turn_request from the persisted run stream while delivering it in-process', async () => {
+		const eventStreamStore = createTestEventStreamStore();
+		const observed: string[] = [];
+		const app = createApp({
+			target: 'node',
+			manifest: { agents: [], workflows: [{ name: 'daily-report', transports: { http: true } }] },
+			workflowHandlers: {
+				'daily-report': async (ctx) => {
+					const internal = ctx as unknown as FlueContextInternal;
+					internal.subscribeEvent((event) => {
+						observed.push(event.type);
+					});
+					internal.emitEvent({
+						type: 'turn_request',
+						turnId: 'turn-1',
+						purpose: 'agent',
+						model: 'reviewer',
+						provider: 'faux',
+						api: 'faux-chat',
+						input: { systemPrompt: 'secret system prompt', messages: [] },
+					});
+					internal.emitEvent({ type: 'log', level: 'info', message: 'after turn_request' });
+					return { delivered: true };
+				},
+			},
+			createContext,
+			runStore: new InMemoryRunStore(),
+			eventStreamStore,
+		});
+
+		const response = await app.fetch(
+			new Request('http://localhost/flue/workflows/daily-report?wait=result', { method: 'POST' }),
+		);
+		const body = (await response.json()) as { runId: string };
+
+		expect(response.status).toBe(200);
+		// In-process subscribers (observe(), exporters) keep full fidelity.
+		expect(observed).toContain('turn_request');
+		// The durable/public stream never stores or serves turn_request.
+		const persisted = await eventStreamStore.readEvents(`runs/${body.runId}`, { offset: '-1' });
+		const persistedTypes = persisted.events.map((entry) => (entry.data as { type: string }).type);
+		expect(persistedTypes).toContain('log');
+		expect(persistedTypes).not.toContain('turn_request');
+		expect(JSON.stringify(persisted.events)).not.toContain('secret system prompt');
 	});
 
 	it('derives recovery event indexes from the stream head, not the event count', async () => {

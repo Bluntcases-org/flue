@@ -63,7 +63,7 @@ Request failures exit with status `1`. A failed workflow exits with status `2` o
 flue logs run_01JX...
 flue logs run_01JX... --no-follow
 flue logs run_01JX... --since 25
-flue logs run_01JX... --types operation_start,operation,tool_call,log,run_end --format ndjson
+flue logs run_01JX... --types operation_start,operation,tool,log,run_end --format ndjson
 ```
 
 See [Observability](/docs/guide/observability/) for workflow-run inspection and telemetry guidance.

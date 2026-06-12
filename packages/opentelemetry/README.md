@@ -46,7 +46,7 @@ The resolver runs only when a Flue span has no tracked Flue parent. Return `unde
 | `run_start` / `run_resume` / `run_end` | Workflow root span or recovered run-handling segment; `run_resume` adds `flue.workflow.recovery_handling` |
 | `operation_start` / `operation`        | Operation span; root for direct or dispatched processing                                                  |
 | `turn_request` / `turn`                | Model-generation span                                                                                     |
-| `tool_start` / `tool_call`             | Tool span, including `harness.shell(...)`                                                                 |
+| `tool_start` / `tool`             | Tool span, including `harness.shell(...)`                                                                 |
 | `task_start` / `task`                  | Delegated-task span                                                                                       |
 | `compaction_start` / `compaction`      | Compaction span                                                                                           |
 | `log`                                  | Span event                                                                                                |

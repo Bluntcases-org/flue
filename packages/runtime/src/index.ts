@@ -98,6 +98,7 @@ export type {
 	SkillOptions,
 	SkillReference,
 	TaskOptions,
+	TaskSessionRef,
 	ThinkingLevel,
 	ToolArgs,
 	ToolDefinition,

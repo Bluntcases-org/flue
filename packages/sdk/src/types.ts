@@ -46,13 +46,6 @@ export type LlmThinkingContent = {
 	redacted?: boolean;
 };
 
-/** Normalized image content emitted with model-turn events. */
-export type LlmImageContent = {
-	type: 'image';
-	data: string;
-	mimeType: string;
-};
-
 /** Normalized tool call emitted with model-turn events. */
 export type LlmToolCall = {
 	type: 'toolCall';
@@ -62,35 +55,10 @@ export type LlmToolCall = {
 	thoughtSignature?: string;
 };
 
-/** Normalized user message emitted with model-turn events. */
-export type LlmUserMessage = {
-	role: 'user';
-	content: string | (LlmTextContent | LlmImageContent)[];
-};
-
 /** Normalized assistant message emitted with model-turn events. */
 export type LlmAssistantMessage = {
 	role: 'assistant';
 	content: (LlmTextContent | LlmThinkingContent | LlmToolCall)[];
-};
-
-/** Normalized tool-result message emitted with model-turn events. */
-export type LlmToolResultMessage = {
-	role: 'toolResult';
-	toolCallId: string;
-	toolName: string;
-	content: (LlmTextContent | LlmImageContent)[];
-	isError: boolean;
-};
-
-/** Normalized model message emitted with model-turn events. */
-export type LlmMessage = LlmUserMessage | LlmAssistantMessage | LlmToolResultMessage;
-
-/** Normalized tool definition emitted with model-turn events. */
-export type LlmTool = {
-	name: string;
-	description: string;
-	parameters: unknown;
 };
 
 /** Purpose of a model turn emitted with model-turn events. */
@@ -124,24 +92,14 @@ export type FlueEvent = (
 	| { type: 'agent_end'; messages: unknown[] }
 	| { type: 'turn_start'; turnId: string; purpose: LlmTurnPurpose }
 	| {
-			type: 'turn_request';
-			turnId: string;
-			purpose: LlmTurnPurpose;
-			model: string;
-			provider: string;
-			api: string;
-			input: { systemPrompt?: string; messages: LlmMessage[]; tools?: LlmTool[] };
-			reasoning?: string;
-	  }
-	| {
-			type: 'turn_end';
+			type: 'turn_messages';
 			turnId: string;
 			purpose: LlmTurnPurpose;
 			message: unknown;
 			toolResults: unknown[];
 	  }
 	| { type: 'message_start'; message: unknown }
-	| { type: 'message_update'; message: unknown; assistantMessageEvent: unknown }
+	| { type: 'message_update'; message: unknown }
 	| { type: 'message_end'; message: unknown }
 	| { type: 'text_delta'; text: string }
 	| { type: 'thinking_start' }
@@ -149,7 +107,7 @@ export type FlueEvent = (
 	| { type: 'thinking_end'; content: string }
 	| { type: 'tool_start'; toolName: string; toolCallId: string; args?: unknown }
 	| {
-			type: 'tool_call';
+			type: 'tool';
 			toolName: string;
 			toolCallId: string;
 			isError: boolean;
@@ -220,11 +178,13 @@ export type FlueEvent = (
 			durationMs: number;
 	  }
 ) & {
+	/** Durable event-format version. Readers branch on this when the format changes. */
+	v: 1;
+	eventIndex: number;
+	timestamp: string;
 	runId?: string;
 	instanceId?: string;
 	dispatchId?: string;
-	eventIndex?: number;
-	timestamp?: string;
 	session?: string;
 	parentSession?: string;
 	taskId?: string;

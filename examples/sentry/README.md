@@ -77,7 +77,7 @@ and how the pieces fit together.
 ## How the integration works
 
 Flue emits a structured event for every meaningful boundary in a workflow run —
-`run_start`, `operation`, `turn_request`, `turn`, `tool_call`, `log`, `run_end`,
+`run_start`, `operation`, `turn_request`, `turn`, `tool`, `log`, `run_end`,
 and others. Events emitted in that workflow run carry its correlation tree
 (`runId`, `harness`, `session`, `operationId`, `turnId`, `taskId`) so any
 consumer can reconstruct what happened. See [Observability](https://flueframework.com/docs/guide/observability/)
@@ -228,7 +228,7 @@ carry more:
 - **Breadcrumbs.** Forward `log.info` / `log.warn` to
   `Sentry.addBreadcrumb(...)` so each captured exception has the
   in-run log trail attached.
-- **Spans.** The wide `operation`, `tool_call`, `turn`, and `run_end`
+- **Spans.** The wide `operation`, `tool`, `turn`, and `run_end`
   events all carry `durationMs`. Synthesize Sentry spans from
   `(timestamp - durationMs, timestamp)` to build a flame graph for
   every run. The `gen_ai.*` OpenTelemetry semantic conventions are a

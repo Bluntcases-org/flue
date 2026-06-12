@@ -89,4 +89,4 @@ export { formatOffset, parseOffset } from './runtime/event-stream-store.ts';
 
 // ─── Re-export session types needed for SessionStore implementations ────────
 
-export type { SessionData, SessionStore } from './types.ts';
+export type { SessionData, SessionStore, TaskSessionRef } from './types.ts';
