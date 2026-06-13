@@ -2209,6 +2209,164 @@ Final reference gap audit:
   not add process-local history or claim a history API.
 - No justified verified HTTP ingress gap remains.
 
+### Twilio Messaging — 2026-06-13
+
+Status:
+
+- Complete.
+
+Reference capability brief:
+
+- The pinned high-level adapter documentation describes SMS and MMS webhook
+  ingress, Messages API posting, private inbound media retrieval, phone-number
+  and Messaging Service sending, delivery callbacks, and separate low-level
+  Voice helpers.
+- No reference implementation, architecture, types, package declarations,
+  fixtures, payloads, snapshots, sample messages, or tests were consulted.
+
+Primary sources:
+
+- Twilio's current request-validation documentation for the exact configured
+  URL, evolving form parameters, HMAC-SHA1 signatures, `bodySHA256` JSON
+  requests, proxy caveats, and the requirement to validate every webhook.
+- Twilio's current Messaging webhook request documentation for required and
+  optional SMS, MMS, geographic, rich-message, channel, and Advanced Opt-Out
+  fields.
+- Twilio's current outbound Message resource and delivery-status callback
+  documentation.
+- Twilio's current webhook connection-override documentation for retry
+  behavior and the `I-Twilio-Idempotency-Token` header.
+- Official `twilio@6.0.2` package metadata, declarations, README, and published
+  request-validation source.
+- Cloudflare's current Twilio Workers tutorial, which uses standards-based
+  Fetch and HTTP Basic authentication for the Twilio REST API.
+
+Clean-room affirmation:
+
+- The public API, normalized types, synthetic forms, fake ids, signatures,
+  assertions, and tests are being designed from Twilio's primary
+  documentation, official helper source, Cloudflare's current platform
+  guidance, and Flue's existing channel contract. Nothing is copied or
+  translated from Chat SDK source, architecture, types, fixtures, payloads,
+  snapshots, sample messages, or tests.
+
+Decisions:
+
+- Add `@flue/twilio` and `flue add twilio`, scoped to Programmable Messaging.
+  Voice remains outside the package.
+- Publish required `POST /channels/<file>/webhook` ingress and an optional
+  `POST /channels/<file>/status` callback route.
+- Require the exact configured public URL for each enabled route. Twilio signs
+  the configured external URL rather than a framework-relative path, and
+  reconstructing it from a proxied request is not reliable.
+- Verify all form parameters with Web Crypto HMAC-SHA1 before normalization.
+  Preserve duplicate parameter semantics compatible with the current official
+  Twilio helper and validate the request query against the configured signed
+  URL. Flue route matching owns the internal path, which may differ when a
+  trusted proxy strips an external prefix.
+- Require one fixed account plus either one recipient address or one Messaging
+  Service. Reject a validly signed callback for another configured identity.
+- Normalize SMS/MMS messages, media metadata, Advanced Opt-Out, geographic and
+  rich-message metadata, retry identity, and provider parameters. Normalize
+  delivery status as a separate optional surface and preserve future provider
+  states explicitly.
+- Use canonical conversation identity containing the fixed account, inbound
+  recipient address, external participant, and optional Messaging Service.
+- Scope Messaging Service status callbacks by the fixed account and exact
+  signed callback URL because Twilio's documented status subset does not
+  guarantee `MessagingServiceSid`. Reject a mismatched service when Twilio does
+  include one, and derive canonical service identity from authored
+  configuration rather than optional callback metadata.
+- Keep Twilio-native response handling narrow: `undefined` acknowledges an
+  inbound message with an empty TwiML `<Response/>`; ordinary Hono or Fetch
+  `Response` values pass through for explicit TwiML and status control.
+- Do not use the official Node helper in the canonical project path. The
+  current package declares Node 20, has no browser or edge export, and depends
+  on Node-oriented Axios, proxy-agent, JWT, query-string, and XML libraries.
+  The canonical Node and Workers path is a project-owned direct REST Fetch
+  client using Twilio's documented Basic authentication and form encoding.
+
+Tests:
+
+- Added original synthetic SMS, MMS, Advanced Opt-Out, location,
+  rich-message, unknown status, delivery-error, retry-token, duplicate-field,
+  and future-form-field cases with distinct fake ids, addresses, URLs, and
+  message content.
+- Used the current official Twilio helper only as an independent Node signature
+  oracle for original synthetic forms. No provider fixture or sample payload
+  was copied.
+- Covered exact configured public URLs, query strings, connection fragments,
+  reverse-proxy path differences, changed bodies, malformed signatures,
+  unsupported content, body limits, malformed fields, fixed account, address,
+  and Messaging Service identity, response pass-through, handler failure, and
+  canonical conversation-key round trips.
+- Added permanent workerd execution of Web Crypto HMAC-SHA1 verification and
+  changed-body rejection without Node compatibility flags.
+- Added Node and workerd execution of the project-owned Fetch client against
+  injected local transports for both phone-number and Messaging Service sends.
+
+Validation:
+
+- Package strict typecheck, seven Node protocol tests, workerd ingress test,
+  and production build pass.
+- Example strict typecheck, Node and workerd client tests, Node build, and
+  Cloudflare build pass. Both builds discover exactly one `twilio` channel.
+- The real `flue add` CLI test suite passes and verifies both routes,
+  signature guidance, form encoding, package selection, and the
+  Workers-compatible client path.
+- Scoped Biome validation, Knip, whitespace validation, and a frozen offline
+  workspace install pass.
+- The packed package contains the intended runtime declarations, JavaScript,
+  README, license metadata, and prepared Twilio docs without the project-owned
+  outbound client or model tool.
+- No automated or manual test contacted Twilio.
+
+Focused review:
+
+- Reviewed configured-URL signature semantics, query handling, duplicate form
+  values, fixed account and destination checks, status callback scoping,
+  canonical identity, TwiML defaults, response pass-through, Web Crypto
+  execution, Fetch request construction, emitted declarations, recipe
+  guidance, and documentation.
+- Removed a stale unused status-normalization parameter left after canonical
+  Messaging Service identity moved to authored configuration.
+- No unresolved correctness findings remain.
+
+Deviations:
+
+- The initial design proposed comparing the incoming pathname with the
+  configured public URL. That would make the explicit URL option unable to
+  support a common reverse-proxy case where the public path carries an outer
+  prefix that is removed before Flue receives the request. The implementation
+  instead signs the exact configured external URL, compares its query string
+  with the request, and relies on Flue's fixed route for internal path
+  selection. A signature from another configured Twilio URL does not validate
+  against this channel's public URL.
+
+Deferrals:
+
+- Twilio Voice, Conversations, Verify, SendGrid, OAuth installation,
+  subaccount routing, credential rotation, and dynamic multi-number or
+  multi-service tenancy remain outside this fixed Messaging channel.
+- Twilio's generic `bodySHA256` JSON webhook validation is not initially a
+  Messaging route because current Programmable Messaging inbound and status
+  callback documentation specifies form-encoded requests. Add a JSON surface
+  only when a concrete Messaging callback requires it.
+
+Final reference gap audit:
+
+- Reopened only the pinned high-level Twilio adapter documentation during
+  research and final capability comparison; no reference source,
+  declarations, fixtures, payloads, sample messages, or tests were used.
+- Verified SMS and MMS ingress, private media metadata, phone-number and
+  Messaging Service identity, outbound posting, and delivery callbacks are
+  represented.
+- Authenticated media retrieval and the broader Messages API remain
+  project-owned Fetch behavior rather than Flue abstractions.
+- Voice is a separate Twilio product surface and does not justify expanding
+  the Programmable Messaging channel.
+- No justified verified HTTP ingress gap remains.
+
 ## Implementation log template
 
 Append one section per provider while implementing:

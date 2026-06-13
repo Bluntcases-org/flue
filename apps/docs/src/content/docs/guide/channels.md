@@ -16,6 +16,7 @@ your application decide what happens next. Flue provides ingress packages for:
 | Linear      | `@flue/linear`      | `/channels/<file>/webhook`                                 |
 | Telegram    | `@flue/telegram`    | `/channels/<file>/webhook`                                 |
 | WhatsApp    | `@flue/whatsapp`    | `/channels/<file>/webhook`                                 |
+| Twilio      | `@flue/twilio`      | `/channels/<file>/webhook`, `/channels/<file>/status`      |
 
 The packages own signature verification, body limits, provider handshakes,
 identity checks, typed event normalization, and acknowledgement behavior. They
@@ -34,6 +35,7 @@ flue add google-chat --print | codex
 flue add linear --print | codex
 flue add telegram --print | codex
 flue add whatsapp --print | codex
+flue add twilio --print | codex
 ```
 
 The recipe installs the ingress package and an established provider SDK or
@@ -57,7 +59,8 @@ See the provider guides for [GitHub](/docs/guide/channels/github/),
 [Google Chat](/docs/guide/channels/google-chat/),
 [Linear](/docs/guide/channels/linear/),
 [Telegram](/docs/guide/channels/telegram/),
-[WhatsApp](/docs/guide/channels/whatsapp/), or
+[WhatsApp](/docs/guide/channels/whatsapp/),
+[Twilio](/docs/guide/channels/twilio/), or
 [build a custom channel](/docs/guide/build-your-own-channel/).
 
 ## File-based routing
@@ -75,6 +78,8 @@ src/channels/google-chat.ts
 src/channels/linear.ts   -> /channels/linear/webhook
 src/channels/telegram.ts -> /channels/telegram/webhook
 src/channels/whatsapp.ts -> /channels/whatsapp/webhook
+src/channels/twilio.ts   -> /channels/twilio/webhook
+                            /channels/twilio/status
 ```
 
 The filename defines the channel namespace. Provider packages define fixed,
@@ -190,6 +195,7 @@ Channel packages are stateless and do not deduplicate deliveries.
 | Teams activities        | Use `activityId` when the application needs duplicate protection.       |
 | Google Chat direct      | Failed callbacks can be retried; use provider event identity as needed. |
 | Google Workspace Events | Pub/Sub retries unacknowledged push messages.                           |
+| Twilio Messaging        | Webhooks and status callbacks can be retried and expose stable ids.     |
 
 Handlers wait for application work such as `dispatch(...)` admission before
 acknowledging. Deadlines cannot forcibly stop arbitrary callback code. Claim a
