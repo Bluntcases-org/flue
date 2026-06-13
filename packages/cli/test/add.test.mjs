@@ -53,6 +53,7 @@ before(async () => {
 			telegram: 'channel--telegram.md',
 			whatsapp: 'channel--whatsapp.md',
 			twilio: 'channel--twilio.md',
+			messenger: 'channel--messenger.md',
 		};
 		const file = slug ? files[slug] : undefined;
 		if (!file) {
@@ -102,6 +103,10 @@ describe('flue add', () => {
 			result.stderr,
 			/flue add twilio\s+channel\s+https:\/\/www\.twilio\.com\/docs\/messaging/,
 		);
+		assert.match(
+			result.stderr,
+			/flue add messenger\s+channel\s+https:\/\/developers\.facebook\.com\/docs\/messenger-platform/,
+		);
 		assert.ok(result.stderr.includes('flue add <url> --category sandbox'));
 		assert.ok(result.stderr.includes('flue add <url> --category channel'));
 	});
@@ -126,6 +131,18 @@ describe('flue add', () => {
 		assert.ok(result.stdout.includes('X-Twilio-Signature'));
 		assert.ok(result.stdout.includes('application/x-www-form-urlencoded'));
 		assert.ok(result.stdout.includes('Do not install the official `twilio` Node helper'));
+	});
+
+	it('prints the Messenger recipe with verified batches and the Graph Fetch path', async () => {
+		const result = await runCli(['add', 'messenger', '--print']);
+
+		assert.equal(result.code, 0);
+		assert.ok(result.stdout.includes('@flue/messenger'));
+		assert.ok(result.stdout.includes('/channels/messenger/webhook'));
+		assert.ok(result.stdout.includes('X-Hub-Signature-256'));
+		assert.ok(result.stdout.includes('EVENT_RECEIVED'));
+		assert.ok(result.stdout.includes('entry.changes'));
+		assert.ok(result.stdout.includes('Graph API Fetch client'));
 	});
 
 	it('prints the Teams channel recipe with the Workers-compatible Fetch path', async () => {

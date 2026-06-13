@@ -2367,6 +2367,159 @@ Final reference gap audit:
   the Programmable Messaging channel.
 - No justified verified HTTP ingress gap remains.
 
+### Facebook Messenger — 2026-06-13
+
+Status:
+
+- Complete.
+
+Reference capability brief:
+
+- The pinned high-level adapter documentation describes direct-message
+  webhook ingress, text and attachment messages, quick replies, postbacks,
+  reactions, delivery and read state, outbound text and rich templates,
+  typing indicators, and process-local sent-message history.
+- No reference implementation, architecture, types, package declarations,
+  fixtures, payloads, snapshots, sample messages, or tests were consulted.
+
+Primary sources:
+
+- Meta's current Messenger Platform webhook overview for the Page object,
+  five-second acknowledgement deadline, `EVENT_RECEIVED` response, exact
+  `X-Hub-Signature-256` verification, Page subscription setup, retries,
+  ordering caveats, supported webhook fields, and lack of historical webhook
+  retrieval.
+- Meta's current generic Webhooks documentation for GET verification,
+  batched entry semantics, exact signed event notifications, duplicate
+  delivery, and retry behavior.
+- Meta's current `messages`, `message_echoes`, `message_edits`,
+  `messaging_postbacks`, `message_reactions`, `message_deliveries`,
+  `message_reads`, `messaging_optins`, and `messaging_referrals` webhook
+  references.
+- Meta's current Send API and sender-action documentation for Graph v25.0,
+  Page-scoped recipient ids, `user_ref`, messaging types, message-window
+  policy, sender actions, reactions, and `/PAGE_ID/messages`.
+- Current `facebook-nodejs-business-sdk@24.0.1`,
+  `@warriorteam/messenger-sdk@1.5.8`, and other candidate package metadata.
+- Cloudflare's current Fetch and Web Crypto documentation for standards-based
+  outbound HTTP and HMAC-SHA256 verification.
+
+Clean-room affirmation:
+
+- The public API, normalized event families, synthetic webhook bodies, fake
+  ids, timestamps, signatures, assertions, and tests are being designed from
+  Meta's primary documentation, Cloudflare's current platform guidance, and
+  Flue's existing channel contract. Nothing is copied or translated from Chat
+  SDK source, architecture, types, fixtures, payloads, snapshots, sample
+  messages, or tests.
+
+Decisions:
+
+- Add `@flue/messenger` and `flue add messenger`, scoped to Facebook Page
+  Messenger conversations.
+- Publish GET and POST `/channels/<file>/webhook` routes. GET performs Meta's
+  verification challenge internally; POST verifies the exact request bytes
+  before parsing or application behavior.
+- Require an app secret, verify token, and fixed Page id. The app secret
+  authenticates the configured Meta app; every entry and every normalized
+  event must belong to the fixed Page.
+- Invoke the application callback once per verified HTTP delivery with an
+  ordered `delivery.events` array. Preserve entry and event positions because
+  one failure retries the complete signed POST and Meta may batch updates.
+- Normalize inbound messages, message echoes, edits, postbacks, reactions,
+  deliveries, reads, opt-ins, referrals, and explicit unknown events. Accept
+  the documented `messaging` collection and preserve unsupported `standby`,
+  `changes`, and future event forms without inventing Handover behavior.
+- Model canonical destinations as either a Page-scoped person id or a
+  `user_ref`, always namespaced by the fixed Page. Echo events reverse sender
+  and recipient roles but retain the same Page-plus-participant conversation.
+- Expose marketing-message notification tokens only under a documented
+  trusted `capabilities` object. Raw events and capabilities must remain
+  outside dispatch input, model context, logs, and durable session data.
+- Default an undefined handler result to Meta's documented
+  `EVENT_RECEIVED` text response with status `200`. JSON-compatible values and
+  ordinary Hono or Fetch responses remain available for explicit control.
+- Enforce a configurable handler deadline no greater than 4500 ms, leaving
+  time before Meta's five-second acknowledgement requirement.
+- Use a project-owned Graph API Fetch client for outbound behavior. The
+  official JavaScript Business SDK is a Marketing API SDK built around Axios,
+  and current Messenger-specific community clients do not establish a
+  browser or Workers support contract. The example client will expose a
+  generic request method plus typed message and sender-action operations so
+  applications can extend provider behavior without a Flue-owned outbound
+  abstraction.
+
+Tests:
+
+- Added original synthetic verification challenges and signed Page deliveries
+  covering batched messages, echoes, edits, postbacks, reactions, delivery and
+  read state, opt-ins, referrals, standby events, changes, and future fields.
+- Covered exact-body HMAC-SHA256 verification, malformed and changed bodies,
+  body limits, fixed Page identity, conversation-key round trips, default and
+  explicit responses, handler failure, and handler deadlines.
+- Added permanent workerd execution of ingress verification and of the
+  project-owned Graph Fetch client against injected local transports.
+
+Validation:
+
+- Package build, strict typecheck, seven Node protocol tests, and workerd
+  verification test pass.
+- Example strict typecheck, Node and workerd client tests, and Node and
+  Cloudflare target builds pass. Both builds discover exactly one `messenger`
+  channel.
+- The real `flue add` Node test suite passes and verifies the named recipe,
+  route, signature guidance, acknowledgement, batched changes, and Graph
+  Fetch path.
+- Scoped Biome and Prettier validation, Knip, whitespace validation, and a
+  frozen offline workspace install pass.
+- No automated or manual test contacted Meta.
+
+Focused review:
+
+- Reviewed verification challenge handling, exact request-byte signatures,
+  Page identity, event ordering, canonical conversation identity, capability
+  isolation, timeout behavior, response serialization, Workers execution,
+  Fetch request construction, recipe guidance, and documentation.
+- Removed an unnecessary exported example-only JSON helper type found by
+  Knip. No unresolved correctness findings remain.
+
+Deviations:
+
+- None. Research confirmed the planned Worker-native Web Crypto ingress and
+  project-owned Fetch client path.
+
+Deferrals:
+
+- Meta app creation, Page connection, App Review, access-level approval,
+  Page access-token generation and rotation, webhook field subscription, and
+  multi-Page installation storage remain application and deployment concerns.
+- Instagram Messaging is not silently combined with Facebook Messenger even
+  though current Meta documentation shares selected endpoints and webhook
+  fields. It has different identity and event behavior and should receive a
+  separate explicit product decision.
+- Handover Protocol, `standby`, account linking, games, policy enforcement,
+  feedback, commerce carts, calling, and group-feed behavior remain explicit
+  verified unknown events until a concrete Flue use case justifies stable
+  projections.
+- Marketing-message policy, tags, one-time notifications, private replies,
+  personas, rich templates, attachments, reactions, typing, read state, and
+  broader Graph operations remain project-owned client behavior.
+- Messenger does not expose historical webhook notifications. Flue will not
+  add process-local message caches or claim provider-backed history.
+
+Final reference gap audit:
+
+- Reopened only the pinned high-level Messenger adapter documentation during
+  research and final capability comparison; no reference source,
+  declarations, fixtures, payloads, sample messages, or tests were used.
+- Verified direct-message ingress, text and attachment metadata, quick
+  replies, postbacks, reactions, delivery and read state, outbound posting,
+  and typing/sender actions are represented between the channel and editable
+  project client.
+- Rich templates, attachment upload, marketing policy, account linking, and
+  broader Graph behavior remain project-owned client concerns.
+- No justified verified HTTP ingress gap remains.
+
 ## Implementation log template
 
 Append one section per provider while implementing:
