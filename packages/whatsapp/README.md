@@ -8,19 +8,18 @@ import { createWhatsAppChannel } from '@flue/whatsapp';
 export const channel = createWhatsAppChannel({
   appSecret: process.env.WHATSAPP_APP_SECRET!,
   verifyToken: process.env.WHATSAPP_VERIFY_TOKEN!,
-  businessAccountId: process.env.WHATSAPP_BUSINESS_ACCOUNT_ID!,
-  phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID!,
-  webhook({ delivery }) {
-    // Handle every event in one verified Meta delivery.
+  webhook({ payload }) {
+    // One verified Meta delivery; walk payload.entry[].changes[].
   },
 });
 ```
 
-The package owns GET verification, exact-body signature validation, fixed
-business identity checks, typed event normalization, batch preservation,
-response handling, and canonical phone, Business-Scoped User ID, and group
-conversation identity. Applications own access tokens, outbound clients,
-tools, dispatch policy, and deduplication.
+The package owns GET verification, exact-body signature validation, and
+forwarding Meta's provider-native webhook payload unmodified (typed by
+`@whatsapp-cloudapi/types`), plus canonical phone, Business-Scoped User ID, and
+group conversation identity helpers. Applications own interpreting the payload,
+filtering deliveries by business account or phone number, access tokens,
+outbound clients, tools, dispatch policy, and deduplication.
 
 See the prepared package docs or
 <https://flueframework.com/docs/ecosystem/channels/whatsapp/>.

@@ -1,5 +1,10 @@
 import { defineTool, dispatch } from '@flue/runtime';
-import { createWhatsAppChannel, type WhatsAppConversationRef } from '@flue/whatsapp';
+import {
+	createWhatsAppChannel,
+	type WebhookMessage,
+	type WebhookValue,
+	type WhatsAppConversationRef,
+} from '@flue/whatsapp';
 import { WhatsAppClient } from '@kapso/whatsapp-cloud-api';
 import assistant from '../agents/assistant.ts';
 import { sendTextMessage } from '../whatsapp-client.ts';
@@ -12,36 +17,58 @@ export const client = new WhatsAppClient({
 export const channel = createWhatsAppChannel({
 	appSecret: requiredEnv('WHATSAPP_APP_SECRET'),
 	verifyToken: requiredEnv('WHATSAPP_VERIFY_TOKEN'),
-	businessAccountId: requiredEnv('WHATSAPP_BUSINESS_ACCOUNT_ID'),
-	phoneNumberId: requiredEnv('WHATSAPP_PHONE_NUMBER_ID'),
 
 	// Paths: GET and POST /channels/whatsapp/webhook
-	async webhook({ delivery }) {
-		for (const event of delivery.events) {
-			switch (event.type) {
-				case 'message': {
-					if (event.message.kind !== 'text' && event.message.kind !== 'interactive') {
-						continue;
-					}
+	async webhook({ payload }) {
+		const expectedPhoneNumberId = requiredEnv('WHATSAPP_PHONE_NUMBER_ID');
+		for (const entry of payload.entry) {
+			for (const change of entry.changes) {
+				if (change.field !== 'messages') continue;
+				const value = change.value;
+				// Filtering authenticated deliveries by phone number is application policy.
+				if (value.metadata.phone_number_id !== expectedPhoneNumberId) continue;
+				for (const message of value.messages ?? []) {
+					if (message.type !== 'text' && message.type !== 'interactive') continue;
 					await dispatch(assistant, {
-						id: channel.conversationKey(event.conversation),
+						id: channel.conversationKey(conversationRef(entry.id, value, message)),
 						input: {
-							type: `whatsapp.${event.message.kind}`,
-							messageId: event.message.id,
-							sender: event.sender,
-							message: event.message,
+							type: `whatsapp.${message.type}`,
+							messageId: message.id,
+							message,
 						},
 					});
-					break;
 				}
-				case 'status':
-					break;
-				case 'unknown':
-					break;
 			}
 		}
 	},
 });
+
+/** Derives the bound destination from a native inbound message. */
+function conversationRef(
+	businessAccountId: string,
+	value: WebhookValue,
+	message: WebhookMessage,
+): WhatsAppConversationRef {
+	const phoneNumberId = value.metadata.phone_number_id;
+	if (message.group_id) {
+		return { type: 'group', businessAccountId, phoneNumberId, groupId: message.group_id };
+	}
+	// Prefer the business-scoped user id when Meta omits the phone number.
+	if (!message.from) {
+		return {
+			type: 'individual',
+			businessAccountId,
+			phoneNumberId,
+			destination: { type: 'user-id', userId: message.from_user_id },
+		};
+	}
+	return {
+		type: 'individual',
+		businessAccountId,
+		phoneNumberId,
+		destination: { type: 'phone-number', phoneNumber: message.from },
+	};
+}
 
 export function postMessage(ref: WhatsAppConversationRef) {
 	return defineTool({

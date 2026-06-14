@@ -23,28 +23,44 @@ signed deliveries.
 interface WhatsAppChannelOptions<E extends Env = Env> {
   appSecret: string;
   verifyToken: string;
-  businessAccountId: string;
-  phoneNumberId: string;
   bodyLimit?: number;
   webhook(input: WhatsAppWebhookHandlerInput<E>): WhatsAppHandlerResult;
 }
 ```
 
-| Field               | Description                                                    |
-| ------------------- | -------------------------------------------------------------- |
-| `appSecret`         | Meta app secret for exact-body HMAC-SHA256 verification.       |
-| `verifyToken`       | User-chosen token for GET challenge verification.              |
-| `businessAccountId` | Required `entry.id` for every delivery.                        |
-| `phoneNumberId`     | Required `metadata.phone_number_id` for `messages` changes.    |
-| `bodyLimit`         | Maximum POST body. Default: 3 \* 1024 \* 1024 bytes.           |
-| `webhook`           | Callback for one verified delivery with every event preserved. |
+| Field         | Description                                                      |
+| ------------- | --------------------------------------------------------------- |
+| `appSecret`   | Meta app secret for exact-body HMAC-SHA256 verification.        |
+| `verifyToken` | User-chosen token for GET challenge verification.               |
+| `bodyLimit`   | Maximum POST body. Default: 3 \* 1024 \* 1024 bytes.            |
+| `webhook`     | Callback for one verified delivery with every change preserved. |
+
+The channel verifies the exact request bytes and then forwards Meta's
+provider-native payload unmodified. It does not filter by business account or
+phone number; restricting to your configured phone number
+(`metadata.phone_number_id`) or business account (`entry[].id`) is application
+policy.
+
+## `WhatsAppWebhookHandlerInput`
 
 ```ts
-type WhatsAppHandlerResult = void | JsonValue | Response | Promise<void | JsonValue | Response>;
+interface WhatsAppWebhookHandlerInput<E extends Env = Env> {
+  c: Context<E>;
+  payload: WhatsAppWebhookPayload;
+}
+```
+
+`c` is the Hono request context. `payload` is the verified, provider-native
+WhatsApp Cloud API webhook object, forwarded unmodified.
+
+```ts
+type WhatsAppHandlerResult = WhatsAppHandlerValue | Promise<WhatsAppHandlerValue>;
+// WhatsAppHandlerValue = undefined | JsonValue | Response
 ```
 
 Returning nothing produces an empty `200`. A JSON-compatible value becomes the
-response body. An ordinary Hono or Fetch `Response` passes through.
+response body. An ordinary Hono or Fetch `Response` passes through. A thrown
+handler is not swallowed; it reaches Hono's error handler.
 
 ## `WhatsAppChannel`
 
@@ -62,49 +78,49 @@ A file named `channels/whatsapp.ts` serves GET and POST
 The channel does not persist or deduplicate deliveries. Conversation keys are
 canonical identifiers, not authorization capabilities.
 
-## Deliveries
+## Payload
 
 ```ts
-interface WhatsAppWebhookDelivery {
-  object: 'whatsapp_business_account';
-  events: readonly WhatsAppWebhookEvent[];
-  raw: unknown;
-}
+type WhatsAppWebhookPayload = WebhookPayload;
 ```
 
-`events` remains in signed entry, change, and item order. Each event exposes
-`businessAccountId`, optional phone metadata, source indices, and verified
-`raw`. Do not dispatch or persist raw payloads wholesale.
+`payload` is Meta's provider-native `whatsapp_business_account` webhook object,
+forwarded unmodified after exact-body signature verification. Its field names,
+nesting, and discriminants match Meta's documented wire shape. One POST may
+batch multiple entries, changes, messages, and statuses; walk
+`payload.entry[].changes[]` in the order Meta sent them, narrowing on
+`change.field`, then on `message.type` or `status`.
+
+The native message types are re-exported from
+[`@whatsapp-cloudapi/types`](https://www.npmjs.com/package/@whatsapp-cloudapi/types)
+(MIT, types-only) so applications can import the wire shapes alongside the
+channel:
 
 ```ts
-type WhatsAppWebhookEvent = WhatsAppMessageEvent | WhatsAppStatusEvent | WhatsAppUnknownEvent;
+import type {
+  WebhookChange,
+  WebhookContact,
+  WebhookConversation,
+  WebhookEntry,
+  WebhookError,
+  WebhookMessage,
+  WebhookMessageContact,
+  WebhookMetadata,
+  WebhookPayload,
+  WebhookPricing,
+  WebhookReferral,
+  WebhookStatus,
+  WebhookValue,
+} from '@flue/whatsapp';
 ```
 
-Message events expose `sender`, `conversation`, and a `WhatsAppMessage`
-discriminated by `kind`:
-
-- `text`
-- `media`
-- `location`
-- `contacts`
-- `interactive`
-- `button`
-- `reaction`
-- `revoke`
-- `unsupported`
-- `unknown`
-
-Media variants include the provider asset id, MIME type, hash, caption,
-filename, and voice flag when supplied. Authenticated transport URLs remain
-available only under verified `raw`.
-
-Status events expose the outbound message id, provider status, timestamp,
-optional phone and Business-Scoped User ID recipients, optional callback data
-and conversation metadata, and normalized errors. Known `state` values are
-`sent`, `delivered`, `read`, `played`, and `failed`; other signed values use
-`unknown` while preserving `providerState`.
-
-Unknown change fields use `WhatsAppUnknownEvent`.
+Within a `messages` change, `change.value.messages[].type` discriminates text,
+image, audio, video, document, sticker, location, contacts, interactive
+replies, legacy buttons, reactions, order, system, and unsupported messages,
+plus any future type Meta adds (still forwarded at runtime). The
+`change.value.statuses[].status` discriminant preserves `sent`, `delivered`,
+`read`, `played`, and `failed`. Do not dispatch or persist raw payloads
+wholesale.
 
 ## Identity
 
@@ -134,16 +150,16 @@ type WhatsAppConversationRef =
 
 Individual destinations distinguish phone numbers from Meta Business-Scoped
 User IDs so equal strings in different identity namespaces cannot collide.
-When a verified payload supplies both, the event conversation uses the BSUID;
-legacy messages and failed statuses can fall back to a phone destination.
-Groups remain keyed by provider group id.
+Applications derive a ref from a native inbound message: prefer the BSUID
+(`message.from_user_id`) when Meta omits the phone number (`message.from`), and
+fall back to the phone destination otherwise. Groups remain keyed by provider
+`group_id`.
 
-`WhatsAppUserRef` preserves optional phone number, BSUID, parent BSUID, profile
-name, and username fields. `WhatsAppMessage` likewise exposes optional `from`,
-`fromUserId`, and `fromParentUserId` fields while normalization requires at
-least one usable sender identity. Status values expose optional `recipientId`,
-`recipientUserId`, and `recipientParentUserId`; group status values can also
-include participant phone and BSUID fields.
+`conversationKey(ref)` serializes a canonical namespaced identifier suitable for
+a Flue agent-instance id; it is not an authorization capability.
+`parseConversationKey(id)` parses only keys produced by `conversationKey()` and
+throws `InvalidWhatsAppConversationKeyError` otherwise. The round trip is
+lossless across phone, BSUID, and group destinations.
 
 ## Errors
 

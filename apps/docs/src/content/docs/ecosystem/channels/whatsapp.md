@@ -25,7 +25,12 @@ https://example.com/channels/whatsapp/webhook
 ## Channel module
 
 ```ts title="src/channels/whatsapp.ts"
-import { createWhatsAppChannel, type WhatsAppConversationRef } from '@flue/whatsapp';
+import {
+  createWhatsAppChannel,
+  type WebhookMessage,
+  type WebhookValue,
+  type WhatsAppConversationRef,
+} from '@flue/whatsapp';
 import { defineTool, dispatch } from '@flue/runtime';
 import { WhatsAppClient, type SendMessageResponse } from '@kapso/whatsapp-cloud-api';
 import assistant from '../agents/assistant.ts';
@@ -38,25 +43,58 @@ export const client = new WhatsAppClient({
 export const channel = createWhatsAppChannel({
   appSecret: process.env.WHATSAPP_APP_SECRET!,
   verifyToken: process.env.WHATSAPP_VERIFY_TOKEN!,
-  businessAccountId: process.env.WHATSAPP_BUSINESS_ACCOUNT_ID!,
-  phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID!,
 
   // Paths: GET and POST /channels/whatsapp/webhook
-  async webhook({ delivery }) {
-    for (const event of delivery.events) {
-      if (event.type !== 'message' || event.message.kind !== 'text') continue;
-      await dispatch(assistant, {
-        id: channel.conversationKey(event.conversation),
-        input: {
-          type: 'whatsapp.text',
-          messageId: event.message.id,
-          sender: event.sender,
-          text: event.message.text,
-        },
-      });
+  async webhook({ payload }) {
+    const expectedPhoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID!;
+    for (const entry of payload.entry) {
+      for (const change of entry.changes) {
+        if (change.field !== 'messages') continue;
+        const value = change.value;
+        // Filtering authenticated deliveries by phone number is application policy.
+        if (value.metadata.phone_number_id !== expectedPhoneNumberId) continue;
+        for (const message of value.messages ?? []) {
+          if (message.type !== 'text' && message.type !== 'interactive') continue;
+          await dispatch(assistant, {
+            id: channel.conversationKey(conversationRef(entry.id, value, message)),
+            input: {
+              type: `whatsapp.${message.type}`,
+              messageId: message.id,
+              message,
+            },
+          });
+        }
+      }
     }
   },
 });
+
+// Derive the bound destination from a native inbound message. Meta may omit the
+// phone number once a user adopts a username; prefer the business-scoped user id.
+function conversationRef(
+  businessAccountId: string,
+  value: WebhookValue,
+  message: WebhookMessage,
+): WhatsAppConversationRef {
+  const phoneNumberId = value.metadata.phone_number_id;
+  if (message.group_id) {
+    return { type: 'group', businessAccountId, phoneNumberId, groupId: message.group_id };
+  }
+  if (!message.from) {
+    return {
+      type: 'individual',
+      businessAccountId,
+      phoneNumberId,
+      destination: { type: 'user-id', userId: message.from_user_id },
+    };
+  }
+  return {
+    type: 'individual',
+    businessAccountId,
+    phoneNumberId,
+    destination: { type: 'phone-number', phoneNumber: message.from },
+  };
+}
 
 function sendTextMessage(ref: WhatsAppConversationRef, body: string): Promise<SendMessageResponse> {
   if (ref.type === 'group') {
@@ -118,9 +156,11 @@ Configure the Meta app with the route above and a random
 `messages` field.
 
 Meta sends GET requests for `hub.challenge` verification and signs POST bodies
-with the app secret in `X-Hub-Signature-256`. The package verifies exact bytes,
-then checks the configured business-account and phone-number ids before
-invoking application code.
+with the app secret in `X-Hub-Signature-256`. The package verifies the exact
+bytes, then forwards Meta's provider-native payload unmodified. It does not
+filter by business account or phone number; restricting to your configured
+phone number (`metadata.phone_number_id`) or business account (`entry[].id`) is
+application policy, as the handler above shows.
 
 Use a system-user or business access token for production outbound calls. Keep
 Graph API versions explicit and test an upgrade before changing them.
@@ -128,25 +168,38 @@ Graph API versions explicit and test an upgrade before changing them.
 ## Delivery behavior
 
 One POST can contain many entries, changes, messages, and statuses. The callback
-runs once with the complete verified delivery, and `delivery.events` preserves
-provider order.
+runs once with the complete verified delivery; `payload` is Meta's
+provider-native webhook object, forwarded unmodified and typed by
+`@whatsapp-cloudapi/types`. Walk `payload.entry[].changes[]` in the order Meta
+sent them, narrow on `change.field`, then on `message.type` or `status`, and
+process every applicable item before returning.
 
-Returning nothing produces an empty `200`. Meta retries failed deliveries for
-up to seven days, so claim message ids in durable application storage before
-dispatch when duplicates are unacceptable.
+The `message.type` discriminant covers text, image, audio, video, document,
+sticker, location, contacts, interactive button/list/flow replies, legacy
+buttons, reactions, order, system, and unsupported messages, plus any future
+type Meta adds (still forwarded at runtime). The `status` discriminant preserves
+`sent`, `delivered`, `read`, `played`, and `failed`.
 
-Known message variants cover text, media, location, shared contacts,
-interactive replies, buttons, reactions, revocations, unsupported payloads,
-and future unknown types. Status variants preserve provider state and outbound
-message identity.
+Returning nothing produces an empty `200`. A JSON-compatible value becomes the
+response body; a Hono or Fetch `Response` passes through. A thrown handler is
+not swallowed and reaches Hono's error handler.
+
+Meta expects a prompt `200` (within a few seconds) or it may mark the webhook
+inactive, and it retries non-`200` deliveries with decreasing frequency for up
+to seven days, so duplicates are expected. Admit durable work quickly (dispatch,
+then return) instead of blocking on slow operations. The channel is stateless
+and does not deduplicate; claim message ids in durable application storage
+before dispatch when duplicate admission is unacceptable.
 
 ## Conversation identity
 
-Meta now supplies a Business-Scoped User ID in incoming message webhooks and
-may omit the sender phone number. Individual conversation destinations
-therefore distinguish `phone-number` from `user-id`, prefer the BSUID when both
-are present, and use the matching `to` or `recipient` outbound field. Group
-destinations use the provider group id.
+Meta now supplies a Business-Scoped User ID (`from_user_id`) in incoming message
+webhooks and may omit the sender phone number (`from`) once a user adopts a
+username. Individual conversation destinations therefore distinguish
+`phone-number` from `user-id`. The `conversationRef` helper above derives a ref
+from a native message, preferring the BSUID when the phone number is absent, so
+the outbound request uses the matching `to` or `recipient` field. Group
+destinations use the provider `group_id`.
 
 The current SDK release exposes broad Graph API helpers but its high-level text
 helper models only `to`. The example keeps the full exported SDK client and
@@ -154,8 +207,9 @@ uses its authenticated low-level `request()` method for the documented BSUID
 `recipient` shape. Test each relied-on operation against fake Fetch in Node and
 workerd.
 
-Normalized media includes the stable asset id but omits bearer-authenticated
-download URLs. Use the project-owned client for retrieval, and avoid forwarding
-raw provider payloads into model context.
+Native media payloads carry a bearer-authenticated media `id` (and, on newer
+API versions, a transient `url`). Treat both as transport credentials: download
+media with the project-owned client using the verified id, and avoid forwarding
+the raw `payload` or media URLs into model context wholesale.
 
 See the [`@flue/whatsapp` API reference](/docs/api/whatsapp-channel/).

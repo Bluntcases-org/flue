@@ -1,8 +1,47 @@
+import type {
+	WebhookChange,
+	WebhookContact,
+	WebhookConversation,
+	WebhookEntry,
+	WebhookError,
+	WebhookMessage,
+	WebhookMessageContact,
+	WebhookMetadata,
+	WebhookPayload,
+	WebhookPricing,
+	WebhookReferral,
+	WebhookStatus,
+	WebhookValue,
+} from '@whatsapp-cloudapi/types/webhook';
 import type { Context, Env, Handler } from 'hono';
 import { InvalidWhatsAppConversationKeyError, InvalidWhatsAppInputError } from './errors.ts';
 import { createWhatsAppVerificationHandler, createWhatsAppWebhookHandler } from './webhook.ts';
 
 export { InvalidWhatsAppConversationKeyError, InvalidWhatsAppInputError } from './errors.ts';
+
+/**
+ * Provider-native WhatsApp Cloud API webhook payload, re-exported from
+ * `@whatsapp-cloudapi/types`. Field names, nesting, and discriminants match
+ * Meta's documented wire shape; deliveries are forwarded unmodified.
+ */
+export type {
+	WebhookChange,
+	WebhookContact,
+	WebhookConversation,
+	WebhookEntry,
+	WebhookError,
+	WebhookMessage,
+	WebhookMessageContact,
+	WebhookMetadata,
+	WebhookPayload,
+	WebhookPricing,
+	WebhookReferral,
+	WebhookStatus,
+	WebhookValue,
+};
+
+/** Provider-native WhatsApp Cloud API webhook payload. */
+export type WhatsAppWebhookPayload = WebhookPayload;
 
 export type JsonValue =
 	| null
@@ -18,19 +57,15 @@ export interface ChannelRoute<E extends Env = Env> {
 	readonly handler: Handler<E>;
 }
 
-/** Ingress configuration for one fixed WhatsApp business phone number. */
+/** Ingress configuration for verified WhatsApp Business Cloud webhooks. */
 export interface WhatsAppChannelOptions<E extends Env = Env> {
 	/** Meta app secret used to verify exact POST request bytes. */
 	appSecret: string;
 	/** User-chosen token configured for Meta's GET verification handshake. */
 	verifyToken: string;
-	/** Expected WhatsApp Business Account id from every delivery. */
-	businessAccountId: string;
-	/** Expected business phone-number id from every `messages` change. */
-	phoneNumberId: string;
 	/** Maximum POST body size in bytes. Defaults to 3 * 1024 * 1024. */
 	bodyLimit?: number;
-	/** Receives one verified delivery with all batched events preserved. */
+	/** Receives one verified, provider-native delivery with all batched changes preserved. */
 	webhook(input: WhatsAppWebhookHandlerInput<E>): WhatsAppHandlerResult;
 }
 
@@ -57,241 +92,19 @@ export type WhatsAppConversationRef =
 			groupId: string;
 	  };
 
-export type WhatsAppUserRef = {
-	/** Parent BSUID when the business has enabled parent identifiers. */
-	parentUserId?: string;
-	profileName?: string;
-	username?: string;
-} & (
-	| {
-			/** Phone number supplied by `from` or contact `wa_id`. */
-			phoneNumber: string;
-			/** Business-Scoped User ID supplied by Meta when available. */
-			userId?: string;
-	  }
-	| {
-			/** Phone number supplied by Meta when disclosure conditions permit. */
-			phoneNumber?: string;
-			/** Business-Scoped User ID supplied by `from_user_id` or contact `user_id`. */
-			userId: string;
-	  }
-);
-
-export interface WhatsAppMessageContext {
-	messageId?: string;
-	from?: string;
-	forwarded?: boolean;
-	frequentlyForwarded?: boolean;
-}
-
-export interface WhatsAppReferral {
-	sourceType?: string;
-	sourceId?: string;
-	sourceUrl?: string;
-	body?: string;
-	headline?: string;
-	mediaType?: string;
-}
-
-export interface WhatsAppMedia {
-	type: 'audio' | 'document' | 'image' | 'sticker' | 'video';
-	id: string;
-	mimeType?: string;
-	sha256?: string;
-	caption?: string;
-	filename?: string;
-	voice?: boolean;
-}
-
-export interface WhatsAppSharedContact {
-	name: {
-		formattedName: string;
-		firstName?: string;
-		lastName?: string;
-		middleName?: string;
-		prefix?: string;
-		suffix?: string;
-	};
-	birthday?: string;
-	phones: readonly {
-		phone?: string;
-		userId?: string;
-		type?: string;
-	}[];
-	emails: readonly {
-		email: string;
-		type?: string;
-	}[];
-	organization?: {
-		company?: string;
-		department?: string;
-		title?: string;
-	};
-	addresses: readonly {
-		street?: string;
-		city?: string;
-		state?: string;
-		zip?: string;
-		country?: string;
-		countryCode?: string;
-		type?: string;
-	}[];
-	urls: readonly {
-		url: string;
-		type?: string;
-	}[];
-}
-
-export type WhatsAppMessageSenderIdentity =
-	| {
-			from: string;
-			fromUserId?: string;
-			fromParentUserId?: string;
-	  }
-	| {
-			from?: string;
-			fromUserId: string;
-			fromParentUserId?: string;
-	  };
-
-type WhatsAppMessageBase = WhatsAppMessageSenderIdentity & {
-	id: string;
-	timestamp: number;
-	groupId?: string;
-	context?: WhatsAppMessageContext;
-	referral?: WhatsAppReferral;
-};
-
-export type WhatsAppMessage =
-	| (WhatsAppMessageBase & {
-			kind: 'text';
-			text: string;
-	  })
-	| (WhatsAppMessageBase & {
-			kind: 'media';
-			media: WhatsAppMedia;
-	  })
-	| (WhatsAppMessageBase & {
-			kind: 'location';
-			location: {
-				latitude: number;
-				longitude: number;
-				name?: string;
-				address?: string;
-				url?: string;
-			};
-	  })
-	| (WhatsAppMessageBase & {
-			kind: 'contacts';
-			contacts: readonly WhatsAppSharedContact[];
-	  })
-	| (WhatsAppMessageBase & {
-			kind: 'interactive';
-			reply: {
-				type: 'button_reply' | 'list_reply';
-				id: string;
-				title: string;
-				description?: string;
-			};
-	  })
-	| (WhatsAppMessageBase & {
-			kind: 'button';
-			button: { payload: string; text: string };
-	  })
-	| (WhatsAppMessageBase & {
-			kind: 'reaction';
-			reaction: {
-				messageId: string;
-				action: 'add' | 'remove';
-				emoji?: string;
-			};
-	  })
-	| (WhatsAppMessageBase & {
-			kind: 'revoke';
-			originalMessageId: string;
-	  })
-	| (WhatsAppMessageBase & {
-			kind: 'unsupported';
-			unsupportedType?: string;
-			errors: readonly WhatsAppErrorRef[];
-	  })
-	| (WhatsAppMessageBase & {
-			kind: 'unknown';
-			messageType: string;
-	  });
-
-export interface WhatsAppErrorRef {
-	code: number;
-	title?: string;
-	message?: string;
-	details?: string;
-	href?: string;
-}
-
-interface WhatsAppEventPosition {
-	businessAccountId: string;
-	phoneNumberId?: string;
-	displayPhoneNumber?: string;
-	entryIndex: number;
-	changeIndex: number;
-	itemIndex: number;
-	/** Provider object for this event after exact-body verification. */
-	raw: unknown;
-}
-
-export interface WhatsAppMessageEvent extends WhatsAppEventPosition {
-	type: 'message';
-	sender: WhatsAppUserRef;
-	message: WhatsAppMessage;
-	conversation: WhatsAppConversationRef;
-}
-
-export interface WhatsAppStatusEvent extends WhatsAppEventPosition {
-	type: 'status';
-	status: {
-		messageId: string;
-		state: 'delivered' | 'failed' | 'played' | 'read' | 'sent' | 'unknown';
-		providerState: string;
-		timestamp: number;
-		recipientId?: string;
-		recipientUserId?: string;
-		recipientParentUserId?: string;
-		recipientParticipantId?: string;
-		recipientParticipantUserId?: string;
-		recipientParticipantParentUserId?: string;
-		opaqueCallbackData?: string;
-		conversationId?: string;
-		conversationCategory?: string;
-		errors: readonly WhatsAppErrorRef[];
-	};
-	conversation: WhatsAppConversationRef;
-}
-
-export interface WhatsAppUnknownEvent extends Omit<WhatsAppEventPosition, 'itemIndex'> {
-	type: 'unknown';
-	field: string;
-}
-
-export type WhatsAppWebhookEvent =
-	| WhatsAppMessageEvent
-	| WhatsAppStatusEvent
-	| WhatsAppUnknownEvent;
-
-export interface WhatsAppWebhookDelivery {
-	object: 'whatsapp_business_account';
-	/** Events remain in entry, change, and item order from the signed payload. */
-	events: readonly WhatsAppWebhookEvent[];
-	/** Complete parsed payload after exact-body verification and identity checks. */
-	raw: unknown;
-}
-
 type WhatsAppHandlerValue = undefined | JsonValue | Response;
 
+/**
+ * Returning nothing produces an empty `200`. JSON-compatible values become
+ * JSON responses, and Hono or Fetch responses pass through unchanged.
+ */
 export type WhatsAppHandlerResult = WhatsAppHandlerValue | Promise<WhatsAppHandlerValue>;
 
+/** Input delivered to the verified WhatsApp webhook callback. */
 export interface WhatsAppWebhookHandlerInput<E extends Env = Env> {
 	c: Context<E>;
-	delivery: WhatsAppWebhookDelivery;
+	/** Provider-native payload after exact-body signature verification. */
+	payload: WhatsAppWebhookPayload;
 }
 
 /** Verified WhatsApp ingress and canonical destination identity helpers. */
@@ -304,10 +117,15 @@ export interface WhatsAppChannel<E extends Env = Env> {
 }
 
 /**
- * Creates GET verification and POST delivery routes for one fixed WhatsApp
- * business phone number.
+ * Creates GET verification and POST delivery routes for verified WhatsApp
+ * Business Cloud webhooks.
  *
- * The channel is stateless and does not deduplicate message ids or retries.
+ * The GET route answers Meta's `hub.challenge` handshake. The POST route
+ * verifies the exact request bytes with the app secret and forwards Meta's
+ * provider-native webhook payload unmodified. Filtering deliveries by
+ * business account or phone number (`metadata.phone_number_id`) is application
+ * policy. The channel is stateless and does not deduplicate message ids or
+ * retries.
  */
 export function createWhatsAppChannel<E extends Env = Env>(
 	options: WhatsAppChannelOptions<E>,
@@ -411,7 +229,7 @@ function validateOptions<E extends Env>(options: WhatsAppChannelOptions<E>): voi
 	if (!options || typeof options !== 'object') {
 		throw new TypeError('createWhatsAppChannel() requires an options object.');
 	}
-	for (const field of ['appSecret', 'verifyToken', 'businessAccountId', 'phoneNumberId'] as const) {
+	for (const field of ['appSecret', 'verifyToken'] as const) {
 		if (typeof options[field] !== 'string' || options[field].length === 0) {
 			throw new InvalidWhatsAppInputError(field);
 		}

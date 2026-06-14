@@ -10,8 +10,6 @@ describe('@flue/whatsapp workerd ingress', () => {
 		const whatsapp = createWhatsAppChannel({
 			appSecret: 'worker_app_secret',
 			verifyToken: 'worker_verify_token',
-			businessAccountId: 'waba_worker_17',
-			phoneNumberId: 'phone_worker_17',
 			webhook,
 		});
 		const app = new Hono();
@@ -50,23 +48,17 @@ describe('@flue/whatsapp workerd ingress', () => {
 		expect(challenge.status).toBe(200);
 		expect(await challenge.text()).toBe('worker-challenge');
 		expect(webhook).toHaveBeenCalledOnce();
-		expect(webhook.mock.calls[0]?.[0].delivery.events).toMatchObject([
-			{
-				type: 'message',
-				message: { kind: 'text', text: 'Worker delivery' },
-				sender: {
-					userId: 'US.synthetic-worker-17',
-					username: 'worker.synthetic',
-				},
-				conversation: {
-					type: 'individual',
-					destination: {
-						type: 'user-id',
-						userId: 'US.synthetic-worker-17',
-					},
-				},
-			},
-		]);
+		const value = webhook.mock.calls[0]?.[0].payload.entry[0].changes[0].value;
+		expect(value.messages[0]).toMatchObject({
+			type: 'text',
+			id: 'wamid_worker_17',
+			from_user_id: 'US.synthetic-worker-17',
+			text: { body: 'Worker delivery' },
+		});
+		expect(value.contacts[0]).toMatchObject({
+			user_id: 'US.synthetic-worker-17',
+			profile: { username: 'worker.synthetic' },
+		});
 	});
 });
 

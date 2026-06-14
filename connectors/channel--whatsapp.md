@@ -18,9 +18,11 @@ first existing source root: `<root>/.flue/`, then `<root>/src/`, then
 which WhatsApp message families the application handles.
 
 Install `@flue/whatsapp` and `@kapso/whatsapp-cloud-api@^0.2.1`. Flue owns GET
-verification, exact-body POST signature verification, fixed business identity,
-batch preservation, and event normalization. The project owns the access token,
-full outbound client, tools, dispatch policy, and durable deduplication.
+verification, exact-body POST signature verification, and forwarding Meta's
+provider-native webhook payload unmodified. The project owns interpreting that
+payload, filtering deliveries by business account or phone number, the access
+token, the full outbound client, tools, dispatch policy, and durable
+deduplication.
 
 The SDK root export is Fetch-based and executes in Node and workerd with
 Flue's required `nodejs_compat` configuration. Do not import its `/server`
@@ -35,6 +37,8 @@ dispatched input, handled events, and tool:
 ```ts
 import {
   createWhatsAppChannel,
+  type WebhookMessage,
+  type WebhookValue,
   type WhatsAppConversationRef,
 } from '@flue/whatsapp';
 import { defineTool, dispatch } from '@flue/runtime';
@@ -52,38 +56,61 @@ export const client = new WhatsAppClient({
 export const channel = createWhatsAppChannel({
   appSecret: process.env.WHATSAPP_APP_SECRET!,
   verifyToken: process.env.WHATSAPP_VERIFY_TOKEN!,
-  businessAccountId: process.env.WHATSAPP_BUSINESS_ACCOUNT_ID!,
-  phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID!,
 
   // Paths: GET and POST /channels/whatsapp/webhook
-  async webhook({ delivery }) {
-    for (const event of delivery.events) {
-      switch (event.type) {
-        case 'message': {
-          if (
-            event.message.kind !== 'text' &&
-            event.message.kind !== 'interactive'
-          ) {
+  async webhook({ payload }) {
+    const expectedPhoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID!;
+    for (const entry of payload.entry) {
+      for (const change of entry.changes) {
+        if (change.field !== 'messages') continue;
+        // Filtering authenticated deliveries by phone number is application policy.
+        if (change.value.metadata.phone_number_id !== expectedPhoneNumberId) continue;
+        for (const message of change.value.messages ?? []) {
+          if (message.type !== 'text' && message.type !== 'interactive') {
             continue;
           }
           await dispatch(assistant, {
-            id: channel.conversationKey(event.conversation),
+            id: channel.conversationKey(
+              conversationRef(entry.id, change.value, message),
+            ),
             input: {
-              type: `whatsapp.${event.message.kind}`,
-              messageId: event.message.id,
-              sender: event.sender,
-              message: event.message,
+              type: `whatsapp.${message.type}`,
+              messageId: message.id,
+              message,
             },
           });
-          break;
         }
-        case 'status':
-        case 'unknown':
-          break;
       }
     }
   },
 });
+
+// Derive the bound destination from a native inbound message. Meta may omit the
+// phone number once a user adopts a username; prefer the business-scoped user id.
+function conversationRef(
+  businessAccountId: string,
+  value: WebhookValue,
+  message: WebhookMessage,
+): WhatsAppConversationRef {
+  const phoneNumberId = value.metadata.phone_number_id;
+  if (message.group_id) {
+    return { type: 'group', businessAccountId, phoneNumberId, groupId: message.group_id };
+  }
+  if (!message.from) {
+    return {
+      type: 'individual',
+      businessAccountId,
+      phoneNumberId,
+      destination: { type: 'user-id', userId: message.from_user_id },
+    };
+  }
+  return {
+    type: 'individual',
+    businessAccountId,
+    phoneNumberId,
+    destination: { type: 'phone-number', phoneNumber: message.from },
+  };
+}
 
 function sendTextMessage(
   ref: WhatsAppConversationRef,
@@ -178,49 +205,58 @@ Subscribe the WhatsApp Business Account to the `messages` webhook field. Meta
 uses GET on the route for `hub.challenge` verification and POST for JSON
 deliveries signed through `X-Hub-Signature-256`.
 
-The package verifies the exact POST bytes before parsing and then requires
-every entry and `messages` change to match the configured business account and
-phone-number ids. Do not expose the app secret, verify token, or access token
+The package verifies the exact POST bytes before parsing and forwards Meta's
+provider-native payload unmodified. It does not filter by business account or
+phone number; restricting to your configured `WHATSAPP_PHONE_NUMBER_ID` (and, if
+needed, the `entry[].id` business account) is application policy, as the webhook
+handler above shows. Do not expose the app secret, verify token, or access token
 to the model.
 
 ## Handle deliveries
 
 One POST may contain multiple entries, changes, messages, and statuses.
-`delivery.events` preserves provider order and invokes the application callback
-once for the complete verified delivery. Process every applicable event before
+`payload` is Meta's provider-native webhook object, forwarded unmodified and
+typed by `@whatsapp-cloudapi/types`. The callback is invoked once for the
+complete verified delivery; walk `payload.entry[].changes[]`, narrow on
+`change.field` and `message.type`, and process every applicable item before
 returning success.
 
 Returning nothing produces an empty `200`. A JSON-compatible value becomes the
 response body. Return a normal Hono or Fetch `Response` for explicit status
-control.
+control. A thrown handler is not swallowed; it reaches Hono's error handler.
 
-Meta retries non-`200` deliveries with decreasing frequency for up to seven
-days, so duplicates are expected. The package is stateless and exposes message
-ids and event positions without claiming deduplication. Claim durable ids
-before dispatch when duplicate admission is unacceptable.
+Meta expects a prompt `200` (within a few seconds) or it may mark the webhook
+inactive, and it retries non-`200` deliveries with decreasing frequency for up
+to seven days, so duplicates are expected. Admit durable work quickly (dispatch,
+then return) instead of blocking on slow operations. The package is stateless
+and forwards the message `id` and event positions without claiming
+deduplication. Claim durable ids before dispatch when duplicate admission is
+unacceptable.
 
-Known message families include text, media, location, shared contacts,
-interactive replies, legacy buttons, reactions, revocations, unsupported
-messages, and future unknown message types. Status events preserve sent,
-delivered, read, played, failed, and unknown provider states.
+The `message.type` discriminant covers text, image, audio, video, document,
+sticker, location, contacts, interactive button/list/flow replies, legacy
+buttons, reactions, order, system, and unsupported messages, plus any future
+type Meta adds (still forwarded at runtime). The `status` discriminant preserves
+sent, delivered, read, played, and failed states.
 
 ## Respect identity boundaries
 
-Meta now supplies a Business-Scoped User ID in incoming message webhooks and
-may omit the sender phone number. Individual destinations distinguish a phone
-number from a BSUID, prefer the BSUID when both are available, and use the
-matching `to` or `recipient` outbound request field. Group identity uses the
-provider's group id.
+Meta supplies a Business-Scoped User ID (`from_user_id`) on every incoming
+message and may omit the sender phone number (`from`) once the user adopts a
+username. The `conversationRef` helper above distinguishes a phone number from a
+BSUID, preferring the BSUID when the phone number is absent, so the outbound
+request uses the matching `to` or `recipient` field. Group identity uses the
+provider's `group_id`.
 
 The SDK's current high-level text helper models `to` but not the documented
 BSUID `recipient` field. Keep the full exported SDK client and use its
 authenticated low-level `request()` method for that one application-owned
 operation. Do not add outbound behavior to `@flue/whatsapp`.
 
-Media download URLs are omitted from normalized media objects because they are
-bearer-authenticated transport details. Use the verified media id and the
-project-owned client when media retrieval is required. Do not dispatch
-`event.raw` or `delivery.raw` wholesale.
+Native media payloads carry a bearer-authenticated media `id` (and, on newer
+API versions, a transient `url`). Treat those as transport credentials: use the
+verified media id with the project-owned client to download media, and do not
+forward the raw `payload` or media URLs into model context wholesale.
 
 ## Test without Meta
 
@@ -228,12 +264,12 @@ Create original synthetic payloads from the current official schemas and cover:
 
 - GET challenge success, changed tokens, and duplicate query parameters;
 - exact-body HMAC verification with changed bytes and Unicode;
-- fixed business-account and phone-number identity mismatches;
-- multiple entries, changes, messages, statuses, and unknown fields;
+- application-side phone-number filtering of authenticated deliveries;
+- multiple entries, changes, messages, statuses, and non-`messages` fields;
 - phone-only, BSUID-only, and combined identity payloads, including parent
   BSUIDs and omitted phone fields;
 - text, media, location, contacts, interactive replies, reactions,
-  revocations, unsupported messages, and unknown message types;
+  unsupported messages, and unknown future message types forwarded natively;
 - malformed JSON, content type, body limits, and response behavior;
 - phone, BSUID, and group conversation-key round trips without namespace
   collisions;

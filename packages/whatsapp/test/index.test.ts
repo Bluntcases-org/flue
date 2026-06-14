@@ -6,6 +6,7 @@ import {
 	InvalidWhatsAppInputError,
 	type WhatsAppChannel,
 	type WhatsAppConversationRef,
+	type WhatsAppWebhookPayload,
 } from '../src/index.ts';
 
 const encoder = new TextEncoder();
@@ -16,8 +17,6 @@ describe('createWhatsAppChannel()', () => {
 		const whatsapp = createWhatsAppChannel({
 			appSecret: 'app_secret_lilac',
 			verifyToken: 'verify_token_lilac',
-			businessAccountId: 'waba_8101',
-			phoneNumberId: 'phone_9101',
 			webhook,
 		});
 		const app = channelApp(whatsapp);
@@ -40,16 +39,14 @@ describe('createWhatsAppChannel()', () => {
 		expect(webhook).not.toHaveBeenCalled();
 	});
 
-	it('preserves a signed batch of messages, statuses, and unknown changes', async () => {
+	it('forwards a signed batch of native messages, statuses, and changes unmodified', async () => {
 		const webhook = vi.fn();
 		const whatsapp = createWhatsAppChannel({
 			appSecret: 'app_secret_cedar',
 			verifyToken: 'verify_token_cedar',
-			businessAccountId: 'waba_8202',
-			phoneNumberId: 'phone_9202',
 			webhook,
 		});
-		const raw = {
+		const raw: WhatsAppWebhookPayload = {
 			object: 'whatsapp_business_account',
 			entry: [
 				{
@@ -66,6 +63,7 @@ describe('createWhatsAppChannel()', () => {
 								contacts: [
 									{
 										wa_id: '+15557001414',
+										user_id: 'US.synthetic-amber-14',
 										profile: { name: 'Amber Quill' },
 									},
 								],
@@ -75,12 +73,14 @@ describe('createWhatsAppChannel()', () => {
 										type: 'text',
 										id: 'wamid_text_cedar',
 										from: '+15557001414',
+										from_user_id: 'US.synthetic-amber-14',
 										text: { body: 'Please inspect the edge cache.' },
 										context: { forwarded: true },
 									},
 									{
 										id: 'wamid_choice_cedar',
 										from: '+15557001414',
+										from_user_id: 'US.synthetic-amber-14',
 										timestamp: '1781200102',
 										type: 'interactive',
 										group_id: 'group_ops_cedar',
@@ -111,8 +111,15 @@ describe('createWhatsAppChannel()', () => {
 							},
 						},
 						{
-							field: 'phone_number_quality_update',
-							value: { event: 'FLAGGED' },
+							field: 'messages',
+							value: {
+								messaging_product: 'whatsapp',
+								metadata: {
+									display_phone_number: '+1 555 700 9202',
+									phone_number_id: 'phone_9202',
+								},
+								statuses: [],
+							},
 						},
 					],
 				},
@@ -125,99 +132,37 @@ describe('createWhatsAppChannel()', () => {
 
 		expect(response.status).toBe(200);
 		expect(webhook).toHaveBeenCalledOnce();
-		expect(webhook.mock.calls[0]?.[0]).toMatchObject({
-			c: expect.any(Object),
-			delivery: {
-				object: 'whatsapp_business_account',
-				raw,
-				events: [
-					{
-						type: 'message',
-						entryIndex: 0,
-						changeIndex: 0,
-						itemIndex: 0,
-						businessAccountId: 'waba_8202',
-						phoneNumberId: 'phone_9202',
-						sender: {
-							phoneNumber: '+15557001414',
-							profileName: 'Amber Quill',
-						},
-						conversation: {
-							type: 'individual',
-							businessAccountId: 'waba_8202',
-							phoneNumberId: 'phone_9202',
-							destination: {
-								type: 'phone-number',
-								phoneNumber: '+15557001414',
-							},
-						},
-						message: {
-							kind: 'text',
-							id: 'wamid_text_cedar',
-							text: 'Please inspect the edge cache.',
-							context: { forwarded: true },
-						},
-					},
-					{
-						type: 'message',
-						itemIndex: 1,
-						conversation: {
-							type: 'group',
-							groupId: 'group_ops_cedar',
-						},
-						message: {
-							kind: 'interactive',
-							reply: {
-								type: 'list_reply',
-								id: 'region_west',
-								title: 'West region',
-								description: 'Oregon and Washington',
-							},
-						},
-					},
-					{
-						type: 'status',
-						itemIndex: 0,
-						status: {
-							messageId: 'wamid_outbound_cedar',
-							state: 'delivered',
-							providerState: 'delivered',
-							recipientId: '+15557001414',
-							recipientUserId: 'US.synthetic-amber-14',
-							opaqueCallbackData: 'ticket_778',
-							conversationId: 'conversation_cedar',
-							conversationCategory: 'service',
-							errors: [],
-						},
-						conversation: {
-							type: 'individual',
-							destination: {
-								type: 'user-id',
-								userId: 'US.synthetic-amber-14',
-							},
-						},
-					},
-					{
-						type: 'unknown',
-						field: 'phone_number_quality_update',
-						entryIndex: 0,
-						changeIndex: 1,
-					},
-				],
-			},
+		const input = webhook.mock.calls[0]?.[0];
+		expect(input.c).toEqual(expect.any(Object));
+		// The provider-native payload is forwarded with original field names,
+		// nesting, and discriminants, byte-for-byte equal to the signed JSON.
+		expect(input.payload).toEqual(raw);
+		const change = input.payload.entry[0].changes[0];
+		expect(change.field).toBe('messages');
+		expect(change.value.messages[0]).toMatchObject({
+			type: 'text',
+			text: { body: 'Please inspect the edge cache.' },
+		});
+		expect(change.value.messages[1]).toMatchObject({
+			type: 'interactive',
+			group_id: 'group_ops_cedar',
+			interactive: { type: 'list_reply', list_reply: { id: 'region_west' } },
+		});
+		expect(change.value.statuses[0]).toMatchObject({
+			status: 'delivered',
+			recipient_user_id: 'US.synthetic-amber-14',
+			conversation: { origin: { type: 'service' } },
 		});
 	});
 
-	it('accepts BSUID-only messages and statuses when phone numbers are omitted', async () => {
+	it('forwards BSUID-only messages and statuses when phone numbers are omitted', async () => {
 		const webhook = vi.fn();
 		const whatsapp = createWhatsAppChannel({
 			appSecret: 'app_secret_bsuid',
 			verifyToken: 'verify_token_bsuid',
-			businessAccountId: 'waba_8252',
-			phoneNumberId: 'phone_9252',
 			webhook,
 		});
-		const raw = {
+		const raw: WhatsAppWebhookPayload = {
 			object: 'whatsapp_business_account',
 			entry: [
 				{
@@ -273,52 +218,28 @@ describe('createWhatsAppChannel()', () => {
 
 		expect(response.status).toBe(200);
 		expect(webhook).toHaveBeenCalledOnce();
-		expect(webhook.mock.calls[0]?.[0].delivery.events).toMatchObject([
-			{
-				type: 'message',
-				sender: {
-					userId: 'US.synthetic-user-8252',
-					parentUserId: 'US.ENT.synthetic-parent-8252',
-					profileName: 'Sora Vale',
-					username: 'sora.synthetic',
-				},
-				message: {
-					kind: 'text',
-					fromUserId: 'US.synthetic-user-8252',
-					fromParentUserId: 'US.ENT.synthetic-parent-8252',
-				},
-				conversation: {
-					type: 'individual',
-					destination: {
-						type: 'user-id',
-						userId: 'US.synthetic-user-8252',
-					},
-				},
-			},
-			{
-				type: 'status',
-				status: {
-					recipientUserId: 'US.synthetic-user-8252',
-					recipientParentUserId: 'US.ENT.synthetic-parent-8252',
-				},
-				conversation: {
-					type: 'individual',
-					destination: {
-						type: 'user-id',
-						userId: 'US.synthetic-user-8252',
-					},
-				},
-			},
-		]);
+		const value = webhook.mock.calls[0]?.[0].payload.entry[0].changes[0].value;
+		expect(value.contacts[0]).toMatchObject({
+			user_id: 'US.synthetic-user-8252',
+			parent_user_id: 'US.ENT.synthetic-parent-8252',
+			profile: { name: 'Sora Vale', username: 'sora.synthetic' },
+		});
+		expect(value.messages[0]).toMatchObject({
+			from_user_id: 'US.synthetic-user-8252',
+			from_parent_user_id: 'US.ENT.synthetic-parent-8252',
+		});
+		expect(value.messages[0].from).toBeUndefined();
+		expect(value.statuses[0]).toMatchObject({
+			recipient_user_id: 'US.synthetic-user-8252',
+			recipient_parent_user_id: 'US.ENT.synthetic-parent-8252',
+		});
 	});
 
-	it('normalizes media, location, contacts, reactions, revocations, and unsupported messages', async () => {
+	it('forwards media, location, contacts, reactions, and unknown future message families', async () => {
 		const webhook = vi.fn();
 		const whatsapp = createWhatsAppChannel({
 			appSecret: 'app_secret_maple',
 			verifyToken: 'verify_token_maple',
-			businessAccountId: 'waba_8303',
-			phoneNumberId: 'phone_9303',
 			webhook,
 		});
 		const raw = {
@@ -346,7 +267,6 @@ describe('createWhatsAppChannel()', () => {
 											mime_type: 'image/webp',
 											sha256: 'synthetic-hash-maple',
 											caption: 'Damaged package',
-											url: 'https://media.invalid/private-maple',
 										},
 									},
 									{
@@ -373,13 +293,7 @@ describe('createWhatsAppChannel()', () => {
 													first_name: 'Mira',
 													last_name: 'Stone',
 												},
-												phones: [
-													{
-														phone: '+15557039991',
-														wa_id: 'user_mira_991',
-														type: 'WORK',
-													},
-												],
+												phones: [{ phone: '+15557039991', wa_id: 'user_mira_991', type: 'WORK' }],
 												emails: [{ email: 'mira@example.test', type: 'WORK' }],
 												org: { company: 'Northwind Repair' },
 											},
@@ -390,24 +304,7 @@ describe('createWhatsAppChannel()', () => {
 										from: '+15557033001',
 										timestamp: '1781200204',
 										type: 'reaction',
-										reaction: {
-											message_id: 'wamid_target_maple',
-											emoji: '✅',
-										},
-									},
-									{
-										id: 'wamid_reaction_removed_maple',
-										from: '+15557033001',
-										timestamp: '1781200205',
-										type: 'reaction',
-										reaction: { message_id: 'wamid_target_maple' },
-									},
-									{
-										id: 'wamid_revoke_maple',
-										from: '+15557033001',
-										timestamp: '1781200206',
-										type: 'revoke',
-										revoke: { original_message_id: 'wamid_old_maple' },
+										reaction: { message_id: 'wamid_target_maple', emoji: '✅' },
 									},
 									{
 										id: 'wamid_unsupported_maple',
@@ -443,81 +340,36 @@ describe('createWhatsAppChannel()', () => {
 		);
 
 		expect(response.status).toBe(200);
-		const events = webhook.mock.calls[0]?.[0].delivery.events;
-		expect(events).toHaveLength(8);
-		expect(events[0].message).toEqual(
-			expect.objectContaining({
-				kind: 'media',
-				media: {
-					type: 'image',
-					id: 'media_image_maple',
-					mimeType: 'image/webp',
-					sha256: 'synthetic-hash-maple',
-					caption: 'Damaged package',
-				},
-			}),
-		);
-		expect(events[0].message.media).not.toHaveProperty('url');
-		expect(events[1].message).toMatchObject({
-			kind: 'location',
-			location: {
-				latitude: 45.5231,
-				longitude: -122.6765,
-				name: 'Warehouse North',
-			},
+		const messages = webhook.mock.calls[0]?.[0].payload.entry[0].changes[0].value.messages;
+		expect(messages).toHaveLength(6);
+		// Native media payloads keep the bearer-authenticated media id and hash.
+		expect(messages[0]).toMatchObject({
+			type: 'image',
+			image: { id: 'media_image_maple', sha256: 'synthetic-hash-maple', caption: 'Damaged package' },
 		});
-		expect(events[2].message).toMatchObject({
-			kind: 'contacts',
-			contacts: [
-				{
-					name: {
-						formattedName: 'Mira Stone',
-						firstName: 'Mira',
-						lastName: 'Stone',
-					},
-					phones: [{ phone: '+15557039991', userId: 'user_mira_991', type: 'WORK' }],
-					emails: [{ email: 'mira@example.test', type: 'WORK' }],
-					organization: { company: 'Northwind Repair' },
-				},
-			],
+		expect(messages[1]).toMatchObject({
+			type: 'location',
+			location: { latitude: 45.5231, longitude: -122.6765, name: 'Warehouse North' },
 		});
-		expect(events[3].message).toMatchObject({
-			kind: 'reaction',
-			reaction: {
-				messageId: 'wamid_target_maple',
-				action: 'add',
-				emoji: '✅',
-			},
+		expect(messages[2].contacts[0]).toMatchObject({
+			name: { formatted_name: 'Mira Stone' },
+			phones: [{ phone: '+15557039991', wa_id: 'user_mira_991' }],
+			org: { company: 'Northwind Repair' },
 		});
-		expect(events[4].message).toMatchObject({
-			kind: 'reaction',
-			reaction: { messageId: 'wamid_target_maple', action: 'remove' },
-		});
-		expect(events[5].message).toMatchObject({
-			kind: 'revoke',
-			originalMessageId: 'wamid_old_maple',
-		});
-		expect(events[6].message).toMatchObject({
-			kind: 'unsupported',
-			unsupportedType: 'poll_creation',
-			errors: [{ code: 131051, details: 'Not exposed by this API version.' }],
-		});
-		expect(events[7].message).toMatchObject({
-			kind: 'unknown',
-			messageType: 'future_message',
-		});
+		expect(messages[3]).toMatchObject({ type: 'reaction', reaction: { emoji: '✅' } });
+		expect(messages[4]).toMatchObject({ type: 'unsupported', unsupported: { type: 'poll_creation' } });
+		// Authenticated future/unmodeled message types are forwarded at runtime.
+		expect(messages[5]).toMatchObject({ type: 'future_message', future_message: { value: 7 } });
 	});
 
-	it('rejects changed bytes and mismatched fixed business identities', async () => {
+	it('verifies exact request bytes and forwards any authenticated delivery', async () => {
 		const webhook = vi.fn();
 		const whatsapp = createWhatsAppChannel({
 			appSecret: 'app_secret_onyx',
 			verifyToken: 'verify_token_onyx',
-			businessAccountId: 'waba_8404',
-			phoneNumberId: 'phone_9404',
 			webhook,
 		});
-		const body = ` {\n  "object":"whatsapp_business_account",\n  "entry":[{"id":"waba_8404","changes":[{"field":"messages","value":{"messaging_product":"whatsapp","metadata":{"display_phone_number":"+1 555 704 9404","phone_number_id":"phone_9404"},"messages":[{"id":"wamid_unicode_onyx","from":"+15557044004","timestamp":"1781200301","type":"text","text":{"body":"Unicode café"}}]}}]}]\n} `;
+		const body = ` {\n  "object":"whatsapp_business_account",\n  "entry":[{"id":"waba_8404","changes":[{"field":"messages","value":{"messaging_product":"whatsapp","metadata":{"display_phone_number":"+1 555 704 9404","phone_number_id":"phone_9404"},"messages":[{"id":"wamid_unicode_onyx","from":"+15557044004","from_user_id":"US.synthetic-onyx-04","timestamp":"1781200301","type":"text","text":{"body":"Unicode café"}}]}}]}]\n} `;
 		const signature = await hmac('app_secret_onyx', body);
 		const app = channelApp(whatsapp);
 
@@ -541,22 +393,15 @@ describe('createWhatsAppChannel()', () => {
 				body: body.replace('café', 'cafe'),
 			}),
 		);
-		const wrongAccount = await app.request(
-			await signedRequest(
-				{
-					object: 'whatsapp_business_account',
-					entry: [{ id: 'waba_other', changes: [] }],
-				},
-				'app_secret_onyx',
-			),
-		);
-		const wrongPhone = await app.request(
+		// Identity filtering is now application policy: a delivery for any other
+		// business account or phone number is still authenticated and forwarded.
+		const otherIdentity = await app.request(
 			await signedRequest(
 				{
 					object: 'whatsapp_business_account',
 					entry: [
 						{
-							id: 'waba_8404',
+							id: 'waba_other',
 							changes: [
 								{
 									field: 'messages',
@@ -579,9 +424,8 @@ describe('createWhatsAppChannel()', () => {
 
 		expect(accepted.status).toBe(200);
 		expect(changed.status).toBe(401);
-		expect(wrongAccount.status).toBe(403);
-		expect(wrongPhone.status).toBe(403);
-		expect(webhook).toHaveBeenCalledOnce();
+		expect(otherIdentity.status).toBe(200);
+		expect(webhook).toHaveBeenCalledTimes(2);
 	});
 
 	it('rejects malformed requests before invoking application code', async () => {
@@ -589,8 +433,6 @@ describe('createWhatsAppChannel()', () => {
 		const whatsapp = createWhatsAppChannel({
 			appSecret: 'app_secret_fir',
 			verifyToken: 'verify_token_fir',
-			businessAccountId: 'waba_8505',
-			phoneNumberId: 'phone_9505',
 			bodyLimit: 160,
 			webhook,
 		});
@@ -618,10 +460,7 @@ describe('createWhatsAppChannel()', () => {
 			await signedTextRequest(`{"padding":"${'x'.repeat(200)}"}`, 'app_secret_fir'),
 		);
 		const malformedEnvelope = await app.request(
-			await signedRequest(
-				{ object: 'whatsapp_business_account', entry: [{ id: 'waba_8505' }] },
-				'app_secret_fir',
-			),
+			await signedRequest({ object: 'whatsapp_business_account', entry: {} }, 'app_secret_fir'),
 		);
 
 		expect(wrongContentType.status).toBe(415);
@@ -632,86 +471,7 @@ describe('createWhatsAppChannel()', () => {
 		expect(webhook).not.toHaveBeenCalled();
 	});
 
-	it('rejects messages and statuses without any usable user identity', async () => {
-		const webhook = vi.fn();
-		const whatsapp = createWhatsAppChannel({
-			appSecret: 'app_secret_identity',
-			verifyToken: 'verify_token_identity',
-			businessAccountId: 'waba_8555',
-			phoneNumberId: 'phone_9555',
-			webhook,
-		});
-		const base = {
-			messaging_product: 'whatsapp',
-			metadata: {
-				display_phone_number: '+1 555 700 9555',
-				phone_number_id: 'phone_9555',
-			},
-		};
-		const missingMessageIdentity = await channelApp(whatsapp).request(
-			await signedRequest(
-				{
-					object: 'whatsapp_business_account',
-					entry: [
-						{
-							id: 'waba_8555',
-							changes: [
-								{
-									field: 'messages',
-									value: {
-										...base,
-										messages: [
-											{
-												id: 'wamid_missing_sender',
-												timestamp: '1781200351',
-												type: 'text',
-												text: { body: 'Missing sender identity.' },
-											},
-										],
-									},
-								},
-							],
-						},
-					],
-				},
-				'app_secret_identity',
-			),
-		);
-		const missingStatusIdentity = await channelApp(whatsapp).request(
-			await signedRequest(
-				{
-					object: 'whatsapp_business_account',
-					entry: [
-						{
-							id: 'waba_8555',
-							changes: [
-								{
-									field: 'messages',
-									value: {
-										...base,
-										statuses: [
-											{
-												id: 'wamid_missing_recipient',
-												status: 'failed',
-												timestamp: '1781200352',
-											},
-										],
-									},
-								},
-							],
-						},
-					],
-				},
-				'app_secret_identity',
-			),
-		);
-
-		expect(missingMessageIdentity.status).toBe(400);
-		expect(missingStatusIdentity.status).toBe(400);
-		expect(webhook).not.toHaveBeenCalled();
-	});
-
-	it('uses normal JSON and Hono response behavior', async () => {
+	it('uses normal JSON and Hono response behavior and lets handler errors fall through', async () => {
 		const raw = {
 			object: 'whatsapp_business_account',
 			entry: [],
@@ -719,15 +479,11 @@ describe('createWhatsAppChannel()', () => {
 		const empty = createWhatsAppChannel({
 			appSecret: 'app_secret_response',
 			verifyToken: 'verify_token_response',
-			businessAccountId: 'waba_8606',
-			phoneNumberId: 'phone_9606',
 			webhook() {},
 		});
 		const json = createWhatsAppChannel({
 			appSecret: 'app_secret_response',
 			verifyToken: 'verify_token_response',
-			businessAccountId: 'waba_8606',
-			phoneNumberId: 'phone_9606',
 			webhook() {
 				return { accepted: true };
 			},
@@ -735,8 +491,6 @@ describe('createWhatsAppChannel()', () => {
 		const hono = createWhatsAppChannel({
 			appSecret: 'app_secret_response',
 			verifyToken: 'verify_token_response',
-			businessAccountId: 'waba_8606',
-			phoneNumberId: 'phone_9606',
 			webhook({ c }) {
 				return c.json({ queued: true }, 202);
 			},
@@ -744,21 +498,8 @@ describe('createWhatsAppChannel()', () => {
 		const throws = createWhatsAppChannel({
 			appSecret: 'app_secret_response',
 			verifyToken: 'verify_token_response',
-			businessAccountId: 'waba_8606',
-			phoneNumberId: 'phone_9606',
 			webhook() {
 				throw new Error('synthetic handler failure');
-			},
-		});
-		const invalid = createWhatsAppChannel({
-			appSecret: 'app_secret_response',
-			verifyToken: 'verify_token_response',
-			businessAccountId: 'waba_8606',
-			phoneNumberId: 'phone_9606',
-			webhook() {
-				const value: { self?: unknown } = {};
-				value.self = value;
-				return value as never;
 			},
 		});
 
@@ -774,9 +515,6 @@ describe('createWhatsAppChannel()', () => {
 		const thrownResponse = await channelApp(throws).request(
 			await signedRequest(raw, 'app_secret_response'),
 		);
-		const invalidResponse = await channelApp(invalid).request(
-			await signedRequest(raw, 'app_secret_response'),
-		);
 
 		expect(emptyResponse.status).toBe(200);
 		expect(await emptyResponse.text()).toBe('');
@@ -784,16 +522,14 @@ describe('createWhatsAppChannel()', () => {
 		expect(await jsonResponse.json()).toEqual({ accepted: true });
 		expect(honoResponse.status).toBe(202);
 		expect(await honoResponse.json()).toEqual({ queued: true });
+		// A thrown handler is not swallowed; it reaches Hono's error handler.
 		expect(thrownResponse.status).toBe(500);
-		expect(invalidResponse.status).toBe(500);
 	});
 
 	it('round-trips collision-safe phone, BSUID, and group conversation keys', () => {
 		const whatsapp = createWhatsAppChannel({
 			appSecret: 'app_secret_keys',
 			verifyToken: 'verify_token_keys',
-			businessAccountId: 'waba:with/slash',
-			phoneNumberId: 'phone number 77',
 			webhook() {},
 		});
 		const phone: WhatsAppConversationRef = {
@@ -850,8 +586,6 @@ describe('createWhatsAppChannel()', () => {
 			createWhatsAppChannel({
 				appSecret: '',
 				verifyToken: 'token',
-				businessAccountId: 'waba',
-				phoneNumberId: 'phone',
 				webhook,
 			}),
 		).toThrow(InvalidWhatsAppInputError);
@@ -859,8 +593,6 @@ describe('createWhatsAppChannel()', () => {
 			createWhatsAppChannel({
 				appSecret: 'secret',
 				verifyToken: 'token',
-				businessAccountId: 'waba',
-				phoneNumberId: 'phone',
 				bodyLimit: 0,
 				webhook,
 			}),
