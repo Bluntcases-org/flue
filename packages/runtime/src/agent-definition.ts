@@ -9,6 +9,8 @@ import type {
 	ToolDefinition,
 } from './types.ts';
 
+const createdAgents = new WeakSet<object>();
+
 const VALID_THINKING_LEVELS = {
 	off: true,
 	minimal: true,
@@ -77,7 +79,13 @@ export function createAgent<TPayload = unknown, TEnv = Record<string, any>>(
 	if (typeof initialize !== 'function') {
 		throw new Error('[flue] createAgent() requires an initializer function.');
 	}
-	return Object.freeze({ __flueCreatedAgent: true as const, initialize });
+	const agent = Object.freeze({ __flueCreatedAgent: true as const, initialize });
+	createdAgents.add(agent);
+	return agent;
+}
+
+export function isCreatedAgent(value: unknown): value is CreatedAgent {
+	return Boolean(value && typeof value === 'object' && createdAgents.has(value));
 }
 
 export function assertResolvedAgentProfile(profile: AgentProfile, label: string): AgentProfile {

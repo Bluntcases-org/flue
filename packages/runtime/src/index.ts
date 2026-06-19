@@ -1,8 +1,19 @@
 /// <reference path="../types/skill-md.d.ts" />
 /// <reference path="../types/markdown-md.d.ts" />
 
+export { defineAction } from './action.ts';
+export type {
+	ActionContext,
+	ActionDefinition,
+	ActionInput,
+	ActionInputSchema,
+	ActionOutput,
+	JsonValue,
+} from './action.ts';
 export { createAgent, defineAgentProfile } from './agent-definition.ts';
 export {
+	ActionInputValidationError,
+	ActionOutputValidationError,
 	AttachmentNotAvailableError,
 	FlueError,
 	ModelNotConfiguredError,
@@ -22,6 +33,7 @@ export {
 	ToolInputValidationError,
 	ToolNameConflictError,
 	type ToolValidationIssue,
+	type ValidationIssue,
 } from './errors.ts';
 export { IMAGE_DATA_OMITTED } from './event-redaction.ts';
 export type { McpServerConnection, McpServerOptions, McpTransport } from './mcp.ts';
@@ -46,6 +58,8 @@ export type {
 } from './runtime/run-store.ts';
 export { bash, createSandboxSessionEnv, type SandboxApi } from './sandbox.ts';
 export { defineTool } from './tool.ts';
+export { createWorkflow } from './workflow-definition.ts';
+export type { CreatedWorkflow, ExtractedWorkflow, InlineWorkflow } from './workflow-definition.ts';
 export type {
 	AgentCreateContext,
 	AgentDispatchRequest,

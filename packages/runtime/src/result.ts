@@ -1,9 +1,8 @@
 import type { AgentTool } from '@earendil-works/pi-agent-core';
-import { toJsonSchema } from '@valibot/to-json-schema';
 import * as v from 'valibot';
 import { formatPackagedSkillFilePath } from './agent.ts';
+import { parseValibot, isTopLevelObjectSchema, valibotToJsonSchema } from './schema.ts';
 import { parseSkillMarkdown } from './skill-frontmatter.ts';
-import { isTopLevelObjectSchema, stripJsonSchemaMeta } from './tool-schema.ts';
 import type { PackagedSkillDirectory, SkillReference } from './types.ts';
 
 /**
@@ -162,9 +161,7 @@ export function createResultTools<S extends v.GenericSchema>(
 	let outcome: ResultOutcome<v.InferOutput<S>> = { type: 'pending' };
 
 	const wrapped = needsEnvelope(schema);
-	const innerJsonSchema = stripJsonSchemaMeta(
-		toJsonSchema(schema, { errorMode: 'ignore' }) as Record<string, unknown>,
-	);
+	const innerJsonSchema = valibotToJsonSchema(schema);
 	const finishParameters = wrapped
 		? {
 				type: 'object',
@@ -197,10 +194,12 @@ export function createResultTools<S extends v.GenericSchema>(
 			}
 
 			const candidate = wrapped ? (params as { result: unknown }).result : params;
-			const parsed = v.safeParse(schema, candidate);
+			const parsed = parseValibot(schema, candidate);
 			if (!parsed.success) {
 				const issues = parsed.issues
-					.map((i) => i.message + (i.path ? ` (at ${formatIssuePath(i.path)})` : ''))
+					.map((issue) =>
+						issue.path ? `${issue.message} (at ${formatIssuePath(issue.path)})` : issue.message,
+					)
 					.join('; ');
 				// Throw — pi-agent-core encodes this as a tool-error tool-result, which
 				// the LLM sees on its next turn and can correct.
@@ -268,9 +267,9 @@ function needsEnvelope(schema: v.GenericSchema): boolean {
 	return !isTopLevelObjectSchema(schema);
 }
 
-function formatIssuePath(path: ReadonlyArray<{ key?: unknown }>): string {
+function formatIssuePath(path: readonly PropertyKey[]): string {
 	return path
-		.map((p) => (typeof p.key === 'number' ? `[${p.key}]` : `.${String(p.key ?? '?')}`))
+		.map((key) => (typeof key === 'number' ? `[${key}]` : `.${String(key)}`))
 		.join('')
 		.replace(/^\./, '');
 }

@@ -1,7 +1,12 @@
-import { toJsonSchema } from '@valibot/to-json-schema';
-import * as v from 'valibot';
-import { ToolInputValidationError, type ToolValidationIssue } from './errors.ts';
-import { isTopLevelObjectSchema, stripJsonSchemaMeta } from './tool-schema.ts';
+import type * as v from 'valibot';
+import { ToolInputValidationError } from './errors.ts';
+import {
+	isStandardSchema,
+	isTopLevelObjectSchema,
+	isValibotSchema,
+	parseValibot,
+	valibotToJsonSchema,
+} from './schema.ts';
 import type { ToolDefinition, ToolParameters } from './tool-types.ts';
 
 /**
@@ -64,7 +69,10 @@ const normalizedTools = new WeakMap<ToolDefinition, ToolDefinition>();
  * inline tool literals that never went through `defineTool()`.
  */
 export function normalizeToolDefinition(tool: ToolDefinition): ToolDefinition {
-	if (!isStandardSchema(tool.parameters)) return tool;
+	if (isStandardSchema(tool.parameters) && !isValibotSchema(tool.parameters)) {
+		throw new Error(`[flue] Tool "${tool.name}" parameters must use a Valibot schema.`);
+	}
+	if (!isValibotSchema(tool.parameters)) return tool;
 	const cached = normalizedTools.get(tool);
 	if (cached) return cached;
 
@@ -75,37 +83,19 @@ export function normalizeToolDefinition(tool: ToolDefinition): ToolDefinition {
 				'(v.object({ ... })): every LLM provider requires tool arguments to be a JSON object.',
 		);
 	}
-	const parameters = stripJsonSchemaMeta(
-		toJsonSchema(schema, { errorMode: 'ignore' }) as Record<string, unknown>,
-	);
+	const parameters = valibotToJsonSchema(schema);
 	const execute = tool.execute;
 	const normalized: ToolDefinition = {
 		...tool,
 		parameters,
 		async execute(args, signal) {
-			const parsed = v.safeParse(schema, args);
+			const parsed = parseValibot(schema, args);
 			if (!parsed.success) {
-				throw new ToolInputValidationError({
-					tool: tool.name,
-					issues: parsed.issues.map(toStandardIssue),
-				});
+				throw new ToolInputValidationError({ tool: tool.name, issues: parsed.issues });
 			}
 			return execute(parsed.output as Record<string, any>, signal);
 		},
 	};
 	normalizedTools.set(tool, normalized);
 	return normalized;
-}
-
-/** Standard Schema marker check (valibot implements `~standard`). */
-function isStandardSchema(parameters: ToolParameters): boolean {
-	const marker = (parameters as { '~standard'?: unknown })['~standard'];
-	return typeof marker === 'object' && marker !== null;
-}
-
-function toStandardIssue(issue: v.BaseIssue<unknown>): ToolValidationIssue {
-	const path = issue.path
-		?.map((segment) => segment.key)
-		.filter((key): key is PropertyKey => key !== undefined && key !== null);
-	return path && path.length > 0 ? { message: issue.message, path } : { message: issue.message };
 }

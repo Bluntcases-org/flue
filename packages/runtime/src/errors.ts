@@ -629,9 +629,45 @@ export class ToolNameConflictError extends FlueError {
  * issues shape (https://standardschema.dev). `path` segments are the property
  * keys leading to the failing value.
  */
-export interface ToolValidationIssue {
+export interface ValidationIssue {
 	readonly message: string;
 	readonly path?: readonly PropertyKey[];
+}
+
+export type ToolValidationIssue = ValidationIssue;
+
+abstract class ActionValidationError extends FlueError {
+	constructor({
+		action,
+		boundary,
+		issues,
+	}: {
+		action: string;
+		boundary: 'input' | 'output';
+		issues: readonly ValidationIssue[];
+	}) {
+		super({
+			type: `action_${boundary}_validation`,
+			message: `Action "${action}" ${boundary} does not match the required schema.`,
+			details: '',
+			dev: '',
+			meta: { action, issues },
+		});
+	}
+}
+
+export class ActionInputValidationError extends ActionValidationError {
+	constructor({ action, issues }: { action: string; issues: readonly ValidationIssue[] }) {
+		super({ action, boundary: 'input', issues });
+		this.name = 'ActionInputValidationError';
+	}
+}
+
+export class ActionOutputValidationError extends ActionValidationError {
+	constructor({ action, issues }: { action: string; issues: readonly ValidationIssue[] }) {
+		super({ action, boundary: 'output', issues });
+		this.name = 'ActionOutputValidationError';
+	}
 }
 
 /**

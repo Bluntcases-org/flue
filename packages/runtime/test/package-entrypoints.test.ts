@@ -21,9 +21,13 @@ describe('package entrypoints', () => {
 		const runtime = await import('@flue/runtime');
 
 		expect(runtime).toMatchObject({
+			ActionInputValidationError: expect.any(Function),
+			ActionOutputValidationError: expect.any(Function),
 			connectMcpServer: expect.any(Function),
 			createAgent: expect.any(Function),
+			createWorkflow: expect.any(Function),
 			createSandboxSessionEnv: expect.any(Function),
+			defineAction: expect.any(Function),
 			defineAgentProfile: expect.any(Function),
 			defineTool: expect.any(Function),
 			dispatch: expect.any(Function),

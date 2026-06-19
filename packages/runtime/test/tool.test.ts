@@ -105,6 +105,23 @@ describe('defineTool()', () => {
 		).toThrow('execute');
 	});
 
+	it('rejects a non-Valibot Standard Schema before normalization', () => {
+		expect(() =>
+			defineTool({
+				name: 'lookup',
+				description: 'Look up a value.',
+				parameters: {
+					'~standard': {
+						version: 1,
+						vendor: 'other',
+						validate: () => ({ value: {} }),
+					},
+				},
+				execute: async () => 'ok',
+			}),
+		).toThrow('must use a Valibot schema');
+	});
+
 	it('rejects a valibot parameters schema when its top level is not an object', () => {
 		expect(() =>
 			defineTool({
@@ -490,6 +507,11 @@ describe('custom tools', () => {
 		// Same object identity across turns: the agent loop caches compiled
 		// argument validators keyed by schema identity.
 		expect(parameterSchemas[1]).toBe(parameterSchemas[0]);
+		expect(Object.isFrozen(parameterSchemas[0])).toBe(true);
+		expect(Object.isFrozen((parameterSchemas[0] as { properties: object }).properties)).toBe(true);
+		expect(() => {
+			(parameterSchemas[0] as { type: string }).type = 'string';
+		}).toThrow(TypeError);
 	});
 
 	it('returns a schema error to the model instead of calling execute when arguments fail valibot validation', async () => {
