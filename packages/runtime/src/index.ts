@@ -11,7 +11,7 @@ export type {
 	ActionOutputSchema,
 	JsonValue,
 } from './action.ts';
-export { defineAgent, defineAgentProfile } from './agent-definition.ts';
+export { createAgent, defineAgent, defineAgentProfile } from './agent-definition.ts';
 export {
 	ActionInputValidationError,
 	ActionOutputSerializationError,

@@ -85,6 +85,15 @@ export function defineAgent<TEnv = Record<string, any>>(
 	return agent;
 }
 
+/** @deprecated Renamed to {@link defineAgent}. */
+export function createAgent<TEnv = Record<string, any>>(
+	initialize: (
+		context: AgentCreateContext<TEnv>,
+	) => AgentRuntimeConfig | Promise<AgentRuntimeConfig>,
+): AgentDefinition<TEnv> {
+	return defineAgent(initialize);
+}
+
 export function isAgentDefinition(value: unknown): value is AgentDefinition {
 	return Boolean(value && typeof value === 'object' && agentDefinitions.has(value));
 }
