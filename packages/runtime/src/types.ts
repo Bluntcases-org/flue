@@ -21,7 +21,14 @@ import type * as v from 'valibot';
 import type { ActionDefinition } from './action.ts';
 import type { ToolDefinition } from './tool-types.ts';
 
-export type { ToolArgs, ToolDefinition, ToolParameters } from './tool-types.ts';
+export type {
+	ToolContext,
+	ToolDefinition,
+	ToolInput,
+	ToolInputSchema,
+	ToolOutput,
+	ToolOutputSchema,
+} from './tool-types.ts';
 
 export type { ThinkingLevel };
 

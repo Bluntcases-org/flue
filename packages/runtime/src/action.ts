@@ -6,12 +6,12 @@ import {
 	WorkflowInputUnexpectedError,
 } from './errors.ts';
 import { isTopLevelObjectSchema, isValibotSchema, parseValibot } from './schema.ts';
-import { cloneJsonSerializable } from './json-snapshot.ts';
+import { cloneJsonSerializable, type JsonValue } from './json-snapshot.ts';
 import type { FlueHarness, FlueLogger } from './types.ts';
 
-const definedActions = new WeakSet<object>();
+export type { JsonValue } from './json-snapshot.ts';
 
-export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
+const definedActions = new WeakSet<object>();
 export type ActionInputSchema = v.GenericSchema<Record<string, unknown>, unknown>;
 export type ActionOutputSchema = v.GenericSchema<any, NonNullable<unknown> | null>;
 

@@ -107,6 +107,7 @@ import {
 } from '@flue/whatsapp';
 import { defineTool, dispatch } from '@flue/runtime';
 import { WhatsAppClient, type SendMessageResponse } from '@kapso/whatsapp-cloud-api';
+import * as v from 'valibot';
 import assistant from '../agents/assistant.ts';
 
 export const client = new WhatsAppClient({
@@ -194,17 +195,12 @@ export function postMessage(ref: WhatsAppConversationRef) {
   return defineTool({
     name: 'post_whatsapp_message',
     description: 'Post to the WhatsApp conversation bound to this agent.',
-    parameters: {
-      type: 'object',
-      properties: {
-        text: { type: 'string', minLength: 1, maxLength: 4096 },
-      },
-      required: ['text'],
-      additionalProperties: false,
-    },
-    async execute({ text }) {
+    input: v.object({
+      text: v.pipe(v.string(), v.minLength(1), v.maxLength(4096)),
+    }),
+    async run({ input: { text } }) {
       const result = await sendTextMessage(ref, text);
-      return JSON.stringify({ messageId: result.messages[0]?.id });
+      return { messageId: result.messages[0]?.id ?? null };
     },
   });
 }

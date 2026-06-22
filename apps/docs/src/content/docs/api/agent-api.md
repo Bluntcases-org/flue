@@ -1,7 +1,7 @@
 ---
 title: Agent API
 description: Reference for defining agents and running agent operations with @flue/runtime.
-lastReviewedAt: 2026-05-30
+lastReviewedAt: 2026-06-21
 ---
 
 The agent API is exported from `@flue/runtime`.
@@ -11,6 +11,9 @@ import {
   FlueError,
   ResultUnavailableError,
   ToolInputValidationError,
+  ToolLegacyDefinitionError,
+  ToolOutputSerializationError,
+  ToolOutputValidationError,
   bash,
   connectMcpServer,
   defineAgent,
@@ -49,9 +52,12 @@ import {
   type SkillReference,
   type TaskOptions,
   type ThinkingLevel,
-  type ToolArgs,
+  type ToolContext,
   type ToolDefinition,
-  type ToolParameters,
+  type ToolInput,
+  type ToolInputSchema,
+  type ToolOutput,
+  type ToolOutputSchema,
   type ToolValidationIssue,
 } from '@flue/runtime';
 ```
@@ -115,21 +121,31 @@ Skill metadata registered with an agent, harness, or profile. Imported `SkillRef
 ## `defineTool(...)`
 
 ```ts
-function defineTool<TParams extends ToolParameters>(tool: ToolDefinition<TParams>): ToolDefinition;
+function defineTool<
+  TInput extends ToolInputSchema | undefined = undefined,
+  TOutput extends ToolOutputSchema | undefined = undefined,
+>(options: {
+  name: string;
+  description: string;
+  input?: TInput;
+  output?: TOutput;
+  run: ToolDefinition<TInput, TOutput>['run'];
+}): ToolDefinition<TInput, TOutput>;
 ```
 
-Validates a custom model-callable tool and returns a shallow-frozen, normalized copy.
+Validates a custom model-callable tool and returns a frozen definition. Tool names are checked for collisions with other active tools when a session assembles its tool list.
 
-Valibot `parameters` are converted to plain JSON Schema once at definition time, and `execute` is wrapped so model-supplied arguments are parsed against the schema before the callback runs. A validation failure throws `ToolInputValidationError`, which the agent loop returns to the model as an error tool result so it can retry with corrected arguments; `meta.issues` carries the failures as `ToolValidationIssue` values in [Standard Schema](https://standardschema.dev)'s issues shape. Tool names are checked for collisions with other active tools when a session assembles its tool list.
+`input` and `output` are optional Valibot schemas. `input` must be a top-level object schema. Model-supplied input is validated and parsed before `run` receives it; validation failures become tool errors so the model can retry. When present, `output` validates and parses the returned value. Structured output is snapshotted as JSON-compatible data and JSON-stringified for the model. Without an `output` schema, returning `undefined` sends `null` to the model.
 
 #### `ToolDefinition`
 
-| Field         | Type                                                                 | Description                                                                                                                                 |
-| ------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `name`        | `string`                                                             | Tool name. Must be unique across active built-in and custom tools.                                                                          |
-| `description` | `string`                                                             | Tells the model when and how to use this tool.                                                                                              |
-| `parameters`  | `ToolParameters`                                                     | Valibot object schema (`v.object({ ... })`), or a raw JSON Schema object for schemas produced elsewhere (e.g. MCP).                         |
-| `execute`     | `(args: ToolArgs<TParams>, signal?: AbortSignal) => Promise<string>` | Receives the parsed, typed arguments (the schema's `v.InferOutput`). Returns text sent back to the model. Thrown errors become tool errors. |
+| Field         | Type                                      | Description                                                                                                 |
+| ------------- | ----------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `name`        | `string`                                  | Tool name. Must be unique across active built-in and custom tools.                                          |
+| `description` | `string`                                  | Tells the model when and how to use this tool.                                                              |
+| `input`       | `ToolInputSchema`                         | Optional top-level Valibot object schema.                                                                   |
+| `output`      | `ToolOutputSchema`                        | Optional Valibot schema for typed, validated output.                                                        |
+| `run`         | `({ input, signal }) => value \| Promise` | Receives parsed input when declared and an optional `AbortSignal`. Returns JSON-compatible structured data. |
 
 ```ts
 import { defineTool } from '@flue/runtime';
@@ -138,10 +154,17 @@ import * as v from 'valibot';
 const lookupPolicy = defineTool({
   name: 'lookup_policy',
   description: 'Read one approved policy by topic.',
-  parameters: v.object({ topic: v.string() }),
-  execute: async ({ topic }) => readPolicy(topic),
+  input: v.object({ topic: v.string() }),
+  output: v.object({ title: v.string(), body: v.string() }),
+  async run({ input, signal }) {
+    return readPolicy(input.topic, { signal });
+  },
 });
 ```
+
+### Breaking migration
+
+The old `parameters` and `execute` markers now throw when a tool is defined. Rename `parameters` to `input`, rename `execute(args, signal)` to `run({ input, signal })`, and return structured JSON-compatible data directly instead of calling `JSON.stringify(...)`. Add `output` when the returned shape should be typed and validated.
 
 ## `connectMcpServer(...)`
 
@@ -149,9 +172,9 @@ const lookupPolicy = defineTool({
 function connectMcpServer(name: string, options: McpServerOptions): Promise<McpServerConnection>;
 ```
 
-Connects to a remote MCP server and adapts its listed tools into ordinary Flue tool definitions.
+Connects to a remote MCP server and returns its listed tools as Flue tool definitions ready to pass directly in `tools` arrays.
 
-Adapted tool names use `mcp__<server>__<tool>`. Unsupported characters are replaced with underscores, and duplicate adapted names are rejected. Close the returned connection when its tools are no longer needed.
+Adapted tool names use `mcp__<server>__<tool>`. Unsupported characters are replaced with underscores, and duplicate adapted names are rejected. Do not wrap these tools with `defineTool()`. Close the returned connection when its tools are no longer needed.
 
 #### `McpServerOptions`
 
@@ -178,7 +201,7 @@ interface McpServerConnection {
 | Field     | Description                                            |
 | --------- | ------------------------------------------------------ |
 | `name`    | Server name supplied to `connectMcpServer()`.          |
-| `tools`   | MCP tools adapted into ordinary Flue tool definitions. |
+| `tools`   | MCP tools ready to pass directly in `tools` arrays.     |
 | `close()` | Close the underlying MCP client connection.            |
 
 ## `defineAgent(...)`

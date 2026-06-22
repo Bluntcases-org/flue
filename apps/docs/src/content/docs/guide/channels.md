@@ -241,15 +241,16 @@ export function commentOnIssue(ref: { owner: string; repo: string; issueNumber: 
   return defineTool({
     name: 'comment_on_github_issue',
     description: 'Comment on the GitHub issue bound to this agent.',
-    parameters: v.object({ body: v.string() }),
-    async execute({ body }) {
+    input: v.object({ body: v.string() }),
+    async run({ input, signal }) {
       await client.rest.issues.createComment({
         owner: ref.owner,
         repo: ref.repo,
         issue_number: ref.issueNumber,
-        body,
+        body: input.body,
+        request: { signal },
       });
-      return 'Comment posted.';
+      return { posted: true };
     },
   });
 }

@@ -1,4 +1,4 @@
-import { defineTool, dispatch } from '@flue/runtime';
+import { defineTool, dispatch, type JsonValue } from '@flue/runtime';
 import { createStripeChannel } from '@flue/stripe';
 import type Stripe from 'stripe';
 import assistant from '../agents/assistant.ts';
@@ -54,26 +54,23 @@ export function getCustomerSummary(ref: StripeCustomerRef) {
 	return defineTool({
 		name: 'get_stripe_customer_summary',
 		description: 'Retrieve the Stripe customer already bound to this billing agent.',
-		parameters: {
-			type: 'object',
-			properties: {},
-			additionalProperties: false,
-		},
-		async execute() {
+		async run() {
 			const customer = await client.customers.retrieve(
 				ref.customerId,
 				{},
 				stripeRequestOptions(ref.accountId, ref.context),
 			);
-			if (customer.deleted) {
-				return JSON.stringify({ customerId: customer.id, deleted: true });
-			}
-			return JSON.stringify({
-				customerId: customer.id,
-				name: customer.name,
-				email: customer.email,
-				delinquent: customer.delinquent,
-			});
+			const summary: JsonValue = customer.deleted
+				? { customerId: customer.id, deleted: true }
+				: {
+						customerId: customer.id,
+						...(customer.name === undefined ? {} : { name: customer.name }),
+						email: customer.email,
+						...(customer.delinquent === undefined
+							? {}
+							: { delinquent: customer.delinquent }),
+					};
+			return summary;
 		},
 	});
 }

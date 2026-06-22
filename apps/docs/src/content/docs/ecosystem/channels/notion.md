@@ -151,19 +151,14 @@ export function retrievePage(pageId: string) {
   return defineTool({
     name: 'retrieve_notion_page',
     description: 'Retrieve the Notion page bound to this agent.',
-    parameters: {
-      type: 'object',
-      properties: {},
-      additionalProperties: false,
-    },
-    async execute() {
+    async run() {
       const page = await client.pages.retrieve({ page_id: pageId });
-      return JSON.stringify({
+      return {
         id: page.id,
         object: page.object,
-        archived: 'archived' in page ? page.archived : undefined,
-        inTrash: 'in_trash' in page ? page.in_trash : undefined,
-      });
+        archived: 'archived' in page ? page.archived : null,
+        inTrash: 'in_trash' in page ? page.in_trash : null,
+      };
     },
   });
 }

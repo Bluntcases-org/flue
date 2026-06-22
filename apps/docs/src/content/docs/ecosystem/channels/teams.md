@@ -82,6 +82,7 @@ must receive all channel or group-chat messages.
 ```ts title="src/channels/teams.ts"
 import { defineTool, dispatch } from '@flue/runtime';
 import { createTeamsChannel, type TeamsConversationRef } from '@flue/teams';
+import * as v from 'valibot';
 import assistant from '../agents/assistant.ts';
 import { createTeamsClient } from '../lib/teams-client.ts';
 
@@ -125,15 +126,10 @@ export function postMessage(ref: TeamsConversationRef) {
   return defineTool({
     name: 'post_teams_message',
     description: 'Post to the Microsoft Teams conversation bound to this agent.',
-    parameters: {
-      type: 'object',
-      properties: { text: { type: 'string', minLength: 1 } },
-      required: ['text'],
-      additionalProperties: false,
-    },
-    async execute({ text }) {
+    input: v.object({ text: v.pipe(v.string(), v.minLength(1)) }),
+    async run({ input: { text } }) {
       const result = await client.postMessage(ref, text);
-      return JSON.stringify({ activityId: result.id });
+      return { activityId: result.id };
     },
   });
 }

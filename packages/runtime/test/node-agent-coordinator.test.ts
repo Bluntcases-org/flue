@@ -1549,8 +1549,8 @@ describe('NodeAgentCoordinator', () => {
 			const lookup = defineTool({
 				name: 'lookup',
 				description: 'Look up.',
-				parameters: v.object({ q: v.string() }),
-				execute: async () => 'found it',
+				input: v.object({ q: v.string() }),
+				run: async () => 'found it',
 			});
 			const events: Array<{ type: 'save'; data: SessionData } | { type: 'phase'; phase: string }> =
 				[];
@@ -1618,8 +1618,8 @@ describe('NodeAgentCoordinator', () => {
 			const lookup = defineTool({
 				name: 'lookup',
 				description: 'Look up.',
-				parameters: v.object({ q: v.string() }),
-				execute: async () => 'found it',
+				input: v.object({ q: v.string() }),
+				run: async () => 'found it',
 			});
 			const phases: string[] = [];
 			const coordinator = createNodeAgentCoordinator({

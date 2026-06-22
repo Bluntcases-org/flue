@@ -765,6 +765,20 @@ export class WorkflowAdmissionError extends FlueError {
  * the issues and can retry with corrected arguments. `meta.issues` carries
  * the structured issues in Standard Schema's shape.
  */
+export class ToolLegacyDefinitionError extends FlueError {
+	constructor({ fields }: { fields: readonly string[] }) {
+		super({
+			type: 'tool_legacy_definition',
+			message: 'This tool uses the unsupported legacy definition format.',
+			details: 'The tool definition contains legacy fields.',
+			dev:
+				'defineTool() no longer supports { parameters, execute }. Rename parameters to input, rename execute to run, and return structured data directly. Flue validates output and JSON-serializes it for the model.',
+			meta: { fields: [...fields] },
+		});
+		this.name = 'ToolLegacyDefinitionError';
+	}
+}
+
 export class ToolInputValidationError extends FlueError {
 	constructor({ tool, issues }: { tool: string; issues: readonly ToolValidationIssue[] }) {
 		const summary = issues
@@ -783,6 +797,34 @@ export class ToolInputValidationError extends FlueError {
 			dev: '',
 			meta: { tool, issues },
 		});
+		this.name = 'ToolInputValidationError';
+	}
+}
+
+export class ToolOutputValidationError extends FlueError {
+	constructor({ tool, issues }: { tool: string; issues: readonly ToolValidationIssue[] }) {
+		super({
+			type: 'tool_output_validation',
+			message: `Tool "${tool}" output does not match the required schema.`,
+			details: '',
+			dev: '',
+			meta: { tool, issues },
+		});
+		this.name = 'ToolOutputValidationError';
+	}
+}
+
+export class ToolOutputSerializationError extends FlueError {
+	constructor({ tool, cause }: { tool: string; cause?: unknown }) {
+		super({
+			type: 'tool_output_serialization',
+			message: `Tool "${tool}" output is not JSON-serializable.`,
+			details: '',
+			dev: 'Return a JSON-serializable value, or undefined when the Tool has no output schema.',
+			meta: { tool },
+			cause,
+		});
+		this.name = 'ToolOutputSerializationError';
 	}
 }
 

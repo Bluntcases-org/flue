@@ -38,7 +38,7 @@ input, local message identity, and retrieval tool to the application:
 ```ts
 // flue-blueprint: channel/resend@1
 import { createResendChannel } from '@flue/resend';
-import { defineTool, dispatch } from '@flue/runtime';
+import { defineTool, dispatch, type JsonValue } from '@flue/runtime';
 import { Resend } from 'resend';
 import assistant from '../agents/assistant.ts';
 
@@ -80,15 +80,10 @@ export function retrieveReceivedEmail(emailId: string) {
   return defineTool({
     name: 'retrieve_resend_email',
     description: 'Retrieve the complete inbound email already bound to this agent.',
-    parameters: {
-      type: 'object',
-      properties: {},
-      additionalProperties: false,
-    },
-    async execute() {
+    async run() {
       const result = await client.emails.receiving.get(emailId);
       if (result.error) throw new Error(result.error.message);
-      return JSON.stringify(result.data);
+      return result.data as unknown as JsonValue;
     },
   });
 }

@@ -10,7 +10,8 @@ import {
 import type { JsonSchemaValidator } from '@modelcontextprotocol/sdk/validation';
 import { AjvJsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/ajv';
 import { version as runtimeVersion } from '../package.json' with { type: 'json' };
-import type { ToolDefinition, ToolParameters } from './types.ts';
+import { registerPreparedToolAdapter } from './tool-adapter.ts';
+import type { ToolDefinition } from './types.ts';
 
 /** Remote MCP transport. */
 export type McpTransport = 'streamable-http' | 'sse';
@@ -163,9 +164,16 @@ function createMcpTools(
 		}
 		names.add(toolName);
 
-		return {
+		const definition: ToolDefinition = {
 			name: toolName,
 			description: createToolDescription(serverName, tool),
+			input: undefined,
+			output: undefined,
+			run() {
+				throw new Error('[flue] MCP tools execute through the internal adapter.');
+			},
+		};
+		registerPreparedToolAdapter(definition, {
 			parameters: normalizeInputSchema(tool.inputSchema),
 			async execute(args, signal) {
 				if (signal?.aborted) throw new Error('Operation aborted');
@@ -185,7 +193,8 @@ function createMcpTools(
 				}
 				return text;
 			},
-		};
+		});
+		return Object.freeze(definition);
 	});
 }
 
@@ -244,7 +253,7 @@ function createToolDescription(serverName: string, tool: Tool): string {
 	return parts.join(' ');
 }
 
-function normalizeInputSchema(schema: Tool['inputSchema']): ToolParameters {
+function normalizeInputSchema(schema: Tool['inputSchema']): object {
 	return {
 		...schema,
 		type: schema.type ?? 'object',

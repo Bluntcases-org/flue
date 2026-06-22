@@ -11,8 +11,8 @@ const agent = defineAgent(() => ({ model: 'anthropic/claude-haiku-4-5' }));
 const lookup = defineTool({
 	name: 'lookup_weather',
 	description: 'Look up current weather for a city.',
-	parameters: v.object({ city: v.string() }),
-	execute: async ({ city }) => `${city}: sunny, 72 F`,
+	input: v.object({ city: v.string() }),
+	run: async ({ input }) => `${input.city}: sunny, 72 F`,
 });
 export default defineWorkflow({
 	agent,

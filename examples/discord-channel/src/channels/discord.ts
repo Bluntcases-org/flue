@@ -6,6 +6,7 @@ import {
 	type DiscordDestinationRef,
 } from '@flue/discord';
 import { defineTool, dispatch } from '@flue/runtime';
+import * as v from 'valibot';
 import assistant from '../agents/assistant.ts';
 
 export const client = new REST({ version: '10' }).setToken(requiredEnv('DISCORD_BOT_TOKEN'));
@@ -49,19 +50,12 @@ export function postMessage(ref: DiscordDestinationRef) {
 	return defineTool({
 		name: 'post_discord_message',
 		description: 'Post a message to the Discord destination bound to this agent.',
-		parameters: {
-			type: 'object',
-			properties: {
-				content: { type: 'string', minLength: 1 },
-			},
-			required: ['content'],
-			additionalProperties: false,
-		},
-		async execute({ content }) {
+		input: v.object({ content: v.pipe(v.string(), v.minLength(1)) }),
+		async run({ input }) {
 			const result = (await client.post(`/channels/${ref.channelId}/messages`, {
-				body: { content },
+				body: { content: input.content },
 			})) as { id?: string };
-			return JSON.stringify({ messageId: result.id });
+			return { ...(result.id === undefined ? {} : { messageId: result.id }) };
 		},
 	});
 }

@@ -174,13 +174,8 @@ export function retrieveCallback(ref: SalesforceMarketingCloudEmailRef) {
   return defineTool({
     name: 'retrieve_salesforce_marketing_cloud_callback',
     description: 'Retrieve the Marketing Cloud ENS callback bound to this agent.',
-    parameters: {
-      type: 'object',
-      properties: {},
-      additionalProperties: false,
-    },
-    async execute() {
-      return JSON.stringify(await client.getCallback(callbackId));
+    async run() {
+      return client.getCallback(callbackId);
     },
   });
 }

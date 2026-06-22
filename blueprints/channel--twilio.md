@@ -51,6 +51,8 @@ Use global `fetch`, `URLSearchParams`, and `btoa`. Do not add Node-only
 polyfills. The repository example at `examples/twilio-channel/` shows the
 expected project-owned shape, but adapt it to the project's actual operations.
 
+Install `valibot` using the project's existing dependency conventions.
+
 ## Create the channel
 
 Create `<source-dir>/channels/twilio.ts`. Adapt the imported agent, dispatched
@@ -63,6 +65,7 @@ import {
   type TwilioConversationRef,
 } from '@flue/twilio';
 import { defineTool, dispatch } from '@flue/runtime';
+import * as v from 'valibot';
 import assistant from '../agents/assistant.ts';
 import { TwilioClient } from '../twilio-client.ts';
 
@@ -104,15 +107,9 @@ export function postMessage(ref: TwilioConversationRef) {
   return defineTool({
     name: 'post_twilio_message',
     description: 'Post to the Twilio conversation bound to this agent.',
-    parameters: {
-      type: 'object',
-      properties: {
-        text: { type: 'string', minLength: 1 },
-      },
-      required: ['text'],
-      additionalProperties: false,
-    },
-    async execute({ text }) {
+    input: v.object({ text: v.pipe(v.string(), v.minLength(1)) }),
+    async run({ input }) {
+      const { text } = input;
       const result = await client.messages.create({
         to: ref.participant,
         body: text,
@@ -120,7 +117,7 @@ export function postMessage(ref: TwilioConversationRef) {
           ? { messagingServiceSid: ref.messagingServiceSid }
           : { from: ref.address }),
       });
-      return JSON.stringify({ messageSid: result.sid });
+      return { messageSid: result.sid };
     },
   });
 }

@@ -23,6 +23,8 @@ official JavaScript REST SDK; `@discordjs/rest` is the
 dominant community-maintained REST client. Do not add Discord Gateway or a
 long-lived bot connection for outbound REST calls.
 
+Install `valibot` using the project's existing dependency conventions.
+
 ## Create the channel
 
 Create `<source-dir>/channels/discord.ts`. Adapt the imported agent, command
@@ -32,6 +34,7 @@ derivation:
 ```ts
 // flue-blueprint: channel/discord@1
 import { REST } from '@discordjs/rest';
+import * as v from 'valibot';
 import {
   createDiscordChannel,
   type APIInteraction,
@@ -82,17 +85,13 @@ export function postMessage(ref: DiscordDestinationRef) {
   return defineTool({
     name: 'post_discord_message',
     description: 'Post a message to the Discord destination bound to this agent.',
-    parameters: {
-      type: 'object',
-      properties: { content: { type: 'string', minLength: 1 } },
-      required: ['content'],
-      additionalProperties: false,
-    },
-    async execute({ content }) {
+    input: v.object({ content: v.pipe(v.string(), v.minLength(1)) }),
+    async run({ input }) {
+      const { content } = input;
       const result = (await client.post(`/channels/${ref.channelId}/messages`, {
         body: { content },
       })) as { id?: string };
-      return JSON.stringify({ messageId: result.id });
+      return { ...(result.id === undefined ? {} : { messageId: result.id }) };
     },
   });
 }

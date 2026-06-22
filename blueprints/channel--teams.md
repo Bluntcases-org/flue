@@ -25,6 +25,8 @@ infrastructure. Use the documented OAuth client-credentials and Bot Connector
 REST protocols through Fetch so the integration works on Node and Cloudflare
 Workers.
 
+Install `valibot` using the project's existing dependency conventions.
+
 ## Create the Fetch client
 
 Create `<source-dir>/lib/teams-client.ts`. Keep helpers outside the immediate
@@ -55,6 +57,7 @@ input, event policy, and tool:
 ```ts
 // flue-blueprint: channel/teams@1
 import { defineTool, dispatch } from '@flue/runtime';
+import * as v from 'valibot';
 import { createTeamsChannel, type TeamsConversationRef } from '@flue/teams';
 import assistant from '../agents/assistant.ts';
 import { createTeamsClient } from '../lib/teams-client.ts';
@@ -92,15 +95,11 @@ export function postMessage(ref: TeamsConversationRef) {
   return defineTool({
     name: 'post_teams_message',
     description: 'Post a message to the Microsoft Teams conversation bound to this agent.',
-    parameters: {
-      type: 'object',
-      properties: { text: { type: 'string', minLength: 1 } },
-      required: ['text'],
-      additionalProperties: false,
-    },
-    async execute({ text }) {
+    input: v.object({ text: v.pipe(v.string(), v.minLength(1)) }),
+    async run({ input }) {
+      const { text } = input;
       const result = await client.postMessage(ref, text);
-      return JSON.stringify({ activityId: result.id });
+      return { activityId: result.id };
     },
   });
 }

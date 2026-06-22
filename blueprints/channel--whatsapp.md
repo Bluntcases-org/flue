@@ -30,6 +30,8 @@ Flue's required `nodejs_compat` configuration. Do not import its `/server`
 subpath for ordinary messaging. Keep a workerd fake-transport test for every
 client operation the project relies on.
 
+Install `valibot` using the project's existing dependency conventions.
+
 ## Create the channel
 
 Create `<source-dir>/channels/whatsapp.ts`. Adapt the imported agent,
@@ -44,6 +46,7 @@ import {
   type WhatsAppConversationRef,
 } from '@flue/whatsapp';
 import { defineTool, dispatch } from '@flue/runtime';
+import * as v from 'valibot';
 import {
   WhatsAppClient,
   type SendMessageResponse,
@@ -142,17 +145,14 @@ export function postMessage(ref: WhatsAppConversationRef) {
   return defineTool({
     name: 'post_whatsapp_message',
     description: 'Post to the WhatsApp conversation bound to this agent.',
-    parameters: {
-      type: 'object',
-      properties: {
-        text: { type: 'string', minLength: 1, maxLength: 4096 },
-      },
-      required: ['text'],
-      additionalProperties: false,
-    },
-    async execute({ text }) {
+    input: v.object({
+      text: v.pipe(v.string(), v.minLength(1), v.maxLength(4096)),
+    }),
+    async run({ input }) {
+      const { text } = input;
       const result = await sendTextMessage(ref, text);
-      return JSON.stringify({ messageId: result.messages[0]?.id });
+      const messageId = result.messages[0]?.id;
+      return { ...(messageId === undefined ? {} : { messageId }) };
     },
   });
 }

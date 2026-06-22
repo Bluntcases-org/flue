@@ -6,9 +6,9 @@ import {
 	type ActionDefinition,
 	type ActionInputSchema,
 	type ActionOutputSchema,
-	type JsonValue,
 } from './action.ts';
 import { isAgentDefinition } from './agent-definition.ts';
+import type { JsonValue } from './json-snapshot.ts';
 import type { AgentDefinition } from './types.ts';
 
 type InlineRunResult<S extends ActionOutputSchema | undefined> = S extends ActionOutputSchema

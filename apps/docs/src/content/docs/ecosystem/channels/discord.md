@@ -212,22 +212,18 @@ trusted code:
 ```ts title="src/channels/discord.ts"
 import { defineTool } from '@flue/runtime';
 import type { DiscordDestinationRef } from '@flue/discord';
+import * as v from 'valibot';
 
 export function postMessage(ref: DiscordDestinationRef) {
   return defineTool({
     name: 'post_discord_message',
     description: 'Post to the Discord destination bound to this agent.',
-    parameters: {
-      type: 'object',
-      properties: { content: { type: 'string', minLength: 1 } },
-      required: ['content'],
-      additionalProperties: false,
-    },
-    async execute({ content }) {
+    input: v.object({ content: v.pipe(v.string(), v.minLength(1)) }),
+    async run({ input: { content } }) {
       const result = (await client.post(`/channels/${ref.channelId}/messages`, {
         body: { content },
       })) as { id?: string };
-      return JSON.stringify({ messageId: result.id });
+      return { messageId: result.id ?? null };
     },
   });
 }

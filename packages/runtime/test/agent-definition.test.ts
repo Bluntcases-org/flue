@@ -28,8 +28,7 @@ function createTool(name: string): ToolDefinition {
 	return defineTool({
 		name,
 		description: `Run ${name}.`,
-		parameters: {},
-		execute: async () => name,
+		run: async () => name,
 	});
 }
 
@@ -135,12 +134,12 @@ describe('defineAgentProfile()', () => {
 		);
 	});
 
-	it('rejects a tool when its execute callback is missing', () => {
+	it('rejects a tool when its run callback is missing', () => {
 		expect(() =>
 			defineAgentProfile({
-				tools: [{ name: 'lookup', description: 'Look up a value.', parameters: {} }],
+				tools: [{ name: 'lookup', description: 'Look up a value.' }],
 			} as never),
-		).toThrow('tools[0].execute');
+		).toThrow('tools[0] run');
 	});
 
 	it('rejects a subagent when its name does not start with a letter', () => {

@@ -108,6 +108,7 @@ The package rejects signed requests for another account or destination.
 ```ts title="src/channels/twilio.ts"
 import { createTwilioChannel, type TwilioConversationRef } from '@flue/twilio';
 import { defineTool, dispatch } from '@flue/runtime';
+import * as v from 'valibot';
 import assistant from '../agents/assistant.ts';
 import { TwilioClient } from '../twilio-client.ts';
 
@@ -149,15 +150,8 @@ export function postMessage(ref: TwilioConversationRef) {
   return defineTool({
     name: 'post_twilio_message',
     description: 'Post to the Twilio conversation bound to this agent.',
-    parameters: {
-      type: 'object',
-      properties: {
-        text: { type: 'string', minLength: 1 },
-      },
-      required: ['text'],
-      additionalProperties: false,
-    },
-    async execute({ text }) {
+    input: v.object({ text: v.pipe(v.string(), v.minLength(1)) }),
+    async run({ input: { text } }) {
       const result = await client.messages.create({
         to: ref.participant,
         body: text,
@@ -165,7 +159,7 @@ export function postMessage(ref: TwilioConversationRef) {
           ? { messagingServiceSid: ref.messagingServiceSid }
           : { from: ref.address }),
       });
-      return JSON.stringify({ messageSid: result.sid });
+      return { messageSid: result.sid };
     },
   });
 }

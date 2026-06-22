@@ -68,14 +68,9 @@ export function retrieveOrder(ref: ShopifyOrderRef) {
 	return defineTool({
 		name: 'retrieve_shopify_order',
 		description: 'Retrieve the Shopify order already bound to this agent.',
-		parameters: {
-			type: 'object',
-			properties: {},
-			additionalProperties: false,
-		},
-		async execute() {
+		async run() {
 			const order = await retrieveShopifyOrder(client, ref.orderId);
-			return JSON.stringify({ order });
+			return { order } as unknown as JsonValue;
 		},
 	});
 }

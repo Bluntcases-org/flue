@@ -270,20 +270,16 @@ credentials are bound in trusted code:
 ```ts title="src/channels/google-chat.ts"
 import type { GoogleChatConversationRef } from '@flue/google-chat';
 import { defineTool } from '@flue/runtime';
+import * as v from 'valibot';
 
 export function postMessage(ref: GoogleChatConversationRef) {
   return defineTool({
     name: 'post_google_chat_message',
     description: 'Post a message to the Google Chat conversation bound to this agent.',
-    parameters: {
-      type: 'object',
-      properties: { text: { type: 'string', minLength: 1 } },
-      required: ['text'],
-      additionalProperties: false,
-    },
-    async execute({ text }) {
+    input: v.object({ text: v.pipe(v.string(), v.minLength(1)) }),
+    async run({ input: { text } }) {
       const message = await client.postMessage(ref, text);
-      return JSON.stringify({ message: message.name });
+      return { message: message.name };
     },
   });
 }

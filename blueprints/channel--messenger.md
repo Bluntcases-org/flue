@@ -31,6 +31,8 @@ not establish a browser or Workers support contract. Use a small
 standards-based Graph API Fetch client in project code and test every operation
 the application relies on in Node and workerd.
 
+Install `valibot` using the project's existing dependency conventions.
+
 ## Create a Graph client
 
 Create `<source-dir>/messenger-client.ts`. Implement a project-owned
@@ -67,6 +69,7 @@ import {
   type MessengerConversationRef,
 } from '@flue/messenger';
 import { defineTool, dispatch } from '@flue/runtime';
+import * as v from 'valibot';
 import assistant from '../agents/assistant.ts';
 import { MessengerClient } from '../messenger-client.ts';
 
@@ -107,20 +110,16 @@ export function postMessage(ref: MessengerConversationRef) {
   return defineTool({
     name: 'post_messenger_message',
     description: 'Post to the Messenger conversation bound to this agent.',
-    parameters: {
-      type: 'object',
-      properties: {
-        text: { type: 'string', minLength: 1 },
-      },
-      required: ['text'],
-      additionalProperties: false,
-    },
-    async execute({ text }) {
+    input: v.object({ text: v.pipe(v.string(), v.minLength(1)) }),
+    async run({ input }) {
+      const { text } = input;
       const result = await client.messages.sendText({
         to: ref.participant,
         text,
       });
-      return JSON.stringify({ messageId: result.messageId });
+      return {
+        ...(result.messageId === undefined ? {} : { messageId: result.messageId }),
+      };
     },
   });
 }

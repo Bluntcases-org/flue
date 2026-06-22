@@ -403,8 +403,8 @@ describe('session.prompt()', () => {
 			const lookup = defineTool({
 				name: 'lookup',
 				description: 'Look up a value.',
-				parameters: v.object({ query: v.string() }),
-				execute: async () => 'Found the requested value.',
+				input: v.object({ query: v.string() }),
+				run: async () => 'Found the requested value.',
 			});
 			const ctx = createContext(provider);
 			const harness = await ctx.initializeRootHarness(
@@ -977,8 +977,8 @@ describe('session.task()', () => {
 					defineTool({
 						name: 'deploy_service',
 						description: 'Deploys the production service.',
-						parameters: v.object({}),
-						execute: async () => 'deployed',
+						input: v.object({}),
+						run: async () => 'deployed',
 					}),
 				],
 				skills: [{ name: 'release-runbook', description: 'Release process guidance.' }],

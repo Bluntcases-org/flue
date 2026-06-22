@@ -10,7 +10,8 @@
 	"dependencies": {
 		"@flue/linear": "workspace:*",
 		"@flue/runtime": "workspace:*",
-		"@linear/sdk": "*"
+		"@linear/sdk": "*",
+		"valibot": "^1.0.0"
 	},
 	"devDependencies": {
 		"@cloudflare/vitest-pool-workers": "0.16.15",

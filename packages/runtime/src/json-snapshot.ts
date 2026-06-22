@@ -1,3 +1,11 @@
+export type JsonValue =
+	| null
+	| boolean
+	| number
+	| string
+	| JsonValue[]
+	| { [key: string]: JsonValue };
+
 export function cloneJsonSerializable(value: unknown, label: string): unknown {
 	assertJsonLike(value, label, new WeakSet());
 	let json: string;

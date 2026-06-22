@@ -1,5 +1,6 @@
 import * as v from 'valibot';
 import { isActionDefinition } from './action.ts';
+import { assertToolDefinition } from './tool.ts';
 import type {
 	AgentInitializerContext,
 	AgentProfile,
@@ -258,18 +259,7 @@ function assertTools(
 	label: string,
 ): asserts values is ToolDefinition[] | undefined {
 	for (const [index, value] of values?.entries() ?? []) {
-		if (!value || typeof value !== 'object') {
-			throw new Error(`[flue] ${label} tools[${index}] must be a tool definition object.`);
-		}
-		const tool = value as Partial<ToolDefinition>;
-		assertNonEmptyString(tool.name, `${label} tools[${index}].name`);
-		assertNonEmptyString(tool.description, `${label} tools[${index}].description`);
-		if (!tool.parameters || typeof tool.parameters !== 'object') {
-			throw new Error(`[flue] ${label} tools[${index}].parameters is required.`);
-		}
-		if (typeof tool.execute !== 'function') {
-			throw new Error(`[flue] ${label} tools[${index}].execute must be a function.`);
-		}
+		assertToolDefinition(value, `${label} tools[${index}]`);
 	}
 }
 

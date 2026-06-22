@@ -1,6 +1,7 @@
 import { defineTool, dispatch } from '@flue/runtime';
 import { createSlackChannel } from '@flue/slack';
 import { WebClient } from '@slack/web-api';
+import * as v from 'valibot';
 import assistant from '../agents/assistant.ts';
 
 export const client = new WebClient(requiredEnv('SLACK_BOT_TOKEN'));
@@ -55,21 +56,17 @@ export function replyInThread(ref: { channelId: string; threadTs: string }) {
 	return defineTool({
 		name: 'reply_in_slack_thread',
 		description: 'Reply in the Slack thread bound to this agent.',
-		parameters: {
-			type: 'object',
-			properties: {
-				text: { type: 'string', minLength: 1 },
-			},
-			required: ['text'],
-			additionalProperties: false,
-		},
-		async execute({ text }) {
+		input: v.object({ text: v.pipe(v.string(), v.minLength(1)) }),
+		async run({ input }) {
 			const result = await client.chat.postMessage({
 				channel: ref.channelId,
 				thread_ts: ref.threadTs,
-				text,
+				text: input.text,
 			});
-			return JSON.stringify({ channel: result.channel, ts: result.ts });
+			return {
+				...(result.channel === undefined ? {} : { channel: result.channel }),
+				...(result.ts === undefined ? {} : { ts: result.ts }),
+			};
 		},
 	});
 }

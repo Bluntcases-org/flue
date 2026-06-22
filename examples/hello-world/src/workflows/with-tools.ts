@@ -28,8 +28,9 @@ export default defineWorkflow({
 		const calculator = defineTool({
 			name: 'calculator',
 			description: 'Perform arithmetic. Returns the numeric result as a string.',
-			parameters: v.object({ expression: v.string() }),
-			execute: async ({ expression }) => String(Function(`"use strict"; return (${expression})`)()),
+			input: v.object({ expression: v.string() }),
+			run: async ({ input }) =>
+				String(Function(`"use strict"; return (${input.expression})`)()),
 		});
 		const { text } = await session.prompt(
 			'Use the calculator tool to compute 7 * 6. Tell me the result.',

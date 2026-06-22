@@ -219,6 +219,9 @@ importers:
       '@flue/runtime':
         specifier: workspace:*
         version: link:../../packages/runtime
+      valibot:
+        specifier: ^1.0.0
+        version: 1.4.0(typescript@6.0.3)
     devDependencies:
       '@cloudflare/vitest-pool-workers':
         specifier: 0.16.15
@@ -247,6 +250,9 @@ importers:
       '@octokit/rest':
         specifier: '*'
         version: 22.0.1
+      valibot:
+        specifier: ^1.0.0
+        version: 1.4.0(typescript@6.0.3)
     devDependencies:
       '@cloudflare/vitest-pool-workers':
         specifier: 0.16.15
@@ -275,6 +281,9 @@ importers:
       jose:
         specifier: '*'
         version: 6.2.3
+      valibot:
+        specifier: ^1.0.0
+        version: 1.4.0(typescript@6.0.3)
     devDependencies:
       '@cloudflare/vitest-pool-workers':
         specifier: 0.16.15
@@ -378,6 +387,9 @@ importers:
       '@linear/sdk':
         specifier: '*'
         version: 86.0.0(graphql@16.14.2)
+      valibot:
+        specifier: ^1.0.0
+        version: 1.4.0(typescript@6.0.3)
     devDependencies:
       '@cloudflare/vitest-pool-workers':
         specifier: 0.16.15
@@ -403,6 +415,9 @@ importers:
       '@flue/runtime':
         specifier: workspace:*
         version: link:../../packages/runtime
+      valibot:
+        specifier: ^1.0.0
+        version: 1.4.0(typescript@6.0.3)
     devDependencies:
       '@cloudflare/vitest-pool-workers':
         specifier: 0.16.15
@@ -639,6 +654,9 @@ importers:
       '@slack/web-api':
         specifier: ^8.0.0-rc.1
         version: 8.0.0-rc.1
+      valibot:
+        specifier: ^1.0.0
+        version: 1.4.0(typescript@6.0.3)
     devDependencies:
       '@cloudflare/vitest-pool-workers':
         specifier: 0.16.15
@@ -695,6 +713,9 @@ importers:
       '@flue/teams':
         specifier: workspace:*
         version: link:../../packages/teams
+      valibot:
+        specifier: ^1.0.0
+        version: 1.4.0(typescript@6.0.3)
     devDependencies:
       '@cloudflare/vitest-pool-workers':
         specifier: 0.16.15
@@ -723,6 +744,9 @@ importers:
       grammy:
         specifier: '*'
         version: 1.44.0
+      valibot:
+        specifier: ^1.0.0
+        version: 1.4.0(typescript@6.0.3)
     devDependencies:
       '@cloudflare/vitest-pool-workers':
         specifier: 0.16.15
@@ -748,6 +772,9 @@ importers:
       '@flue/twilio':
         specifier: workspace:*
         version: link:../../packages/twilio
+      valibot:
+        specifier: ^1.0.0
+        version: 1.4.0(typescript@6.0.3)
     devDependencies:
       '@cloudflare/vitest-pool-workers':
         specifier: 0.16.15
@@ -801,6 +828,9 @@ importers:
       '@kapso/whatsapp-cloud-api':
         specifier: '*'
         version: 0.2.1
+      valibot:
+        specifier: ^1.0.0
+        version: 1.4.0(typescript@6.0.3)
     devDependencies:
       '@cloudflare/vitest-pool-workers':
         specifier: 0.16.15

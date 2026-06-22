@@ -12,7 +12,8 @@
 	"dependencies": {
 		"@flue/google-chat": "workspace:*",
 		"@flue/runtime": "workspace:*",
-		"jose": "*"
+		"jose": "*",
+		"valibot": "^1.0.0"
 	},
 	"devDependencies": {
 		"@cloudflare/vitest-pool-workers": "0.16.15",

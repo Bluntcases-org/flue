@@ -192,18 +192,13 @@ export function retrieveOrder(orderId: string) {
   return defineTool({
     name: 'retrieve_shopify_order',
     description: 'Retrieve the Shopify order already bound to this agent.',
-    parameters: {
-      type: 'object',
-      properties: {},
-      additionalProperties: false,
-    },
-    async execute() {
+    async run() {
       const result: ClientResponse<ShopifyOrderQuery> = await client.request(ORDER_QUERY, {
         variables: { id: `gid://shopify/Order/${orderId}` },
       });
       if (result.errors) throw new Error('Shopify Admin API request failed.');
       if (!result.data?.order) throw new Error('Shopify order was not found.');
-      return JSON.stringify(result.data.order);
+      return result.data.order;
     },
   });
 }

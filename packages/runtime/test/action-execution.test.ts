@@ -257,8 +257,8 @@ describe('model-called Actions', () => {
 		const selectedTool = defineTool({
 			name: 'selected_tool',
 			description: 'Selected profile tool.',
-			parameters: v.object({}),
-			execute: async () => 'selected',
+			input: v.object({}),
+			run: async () => 'selected',
 		});
 		const harness = await createContext(
 			provider,
@@ -604,8 +604,8 @@ describe('Action model tools', () => {
 					defineTool({
 						name: 'lookup',
 						description: 'Look up another value.',
-						parameters: v.object({}),
-						execute: async () => 'ok',
+						input: v.object({}),
+						run: async () => 'ok',
 					}),
 				],
 			})),

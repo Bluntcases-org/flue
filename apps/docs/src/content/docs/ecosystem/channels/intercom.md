@@ -131,17 +131,12 @@ export function retrieveConversation(ref: IntercomConversationRef) {
   return defineTool({
     name: 'retrieve_intercom_conversation',
     description: 'Retrieve the current Intercom conversation bound to this agent.',
-    parameters: {
-      type: 'object',
-      properties: {},
-      additionalProperties: false,
-    },
-    async execute() {
+    async run() {
       const conversation = await client.conversations.find({
         conversation_id: ref.conversationId,
         display_as: 'plaintext',
       });
-      return JSON.stringify(conversation);
+      return conversation;
     },
   });
 }

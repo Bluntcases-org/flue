@@ -9,7 +9,8 @@
 	},
 	"dependencies": {
 		"@flue/runtime": "workspace:*",
-		"@flue/teams": "workspace:*"
+		"@flue/teams": "workspace:*",
+		"valibot": "^1.0.0"
 	},
 	"devDependencies": {
 		"@cloudflare/vitest-pool-workers": "0.16.15",

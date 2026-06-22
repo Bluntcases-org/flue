@@ -86,10 +86,14 @@ describe('package entrypoints', () => {
 		expect(tool).not.toHaveProperty('normalizeToolDefinition');
 	});
 
-	it('keeps tool declarations isolated when a consumer imports @flue/runtime/tool', () => {
+	it('exposes canonical tool types without legacy declaration names', () => {
 		const declaration = readFileSync('dist/tool-entrypoint.d.mts', 'utf8');
 
-		expect(declaration).not.toContain('./types-');
+		expect(declaration).toContain('ToolContext');
+		expect(declaration).toContain('ToolInput');
+		expect(declaration).toContain('ToolOutput');
+		expect(declaration).not.toContain('ToolArgs');
+		expect(declaration).not.toContain('ToolParameters');
 	});
 
 	it('exposes generated-runtime APIs when generated code imports @flue/runtime/internal', async () => {

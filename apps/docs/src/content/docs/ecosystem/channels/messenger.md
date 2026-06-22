@@ -94,6 +94,7 @@ an outbound Graph credential. Keep both in trusted server configuration.
 ```ts title="src/channels/messenger.ts"
 import { createMessengerChannel, type MessengerConversationRef } from '@flue/messenger';
 import { defineTool, dispatch } from '@flue/runtime';
+import * as v from 'valibot';
 import assistant from '../agents/assistant.ts';
 import { MessengerClient } from '../messenger-client.ts';
 
@@ -138,20 +139,13 @@ export function postMessage(ref: MessengerConversationRef) {
   return defineTool({
     name: 'post_messenger_message',
     description: 'Post to the Messenger conversation bound to this agent.',
-    parameters: {
-      type: 'object',
-      properties: {
-        text: { type: 'string', minLength: 1 },
-      },
-      required: ['text'],
-      additionalProperties: false,
-    },
-    async execute({ text }) {
+    input: v.object({ text: v.pipe(v.string(), v.minLength(1)) }),
+    async run({ input: { text } }) {
       const result = await client.messages.sendText({
         to: ref.participant,
         text,
       });
-      return JSON.stringify({ messageId: result.messageId });
+      return { messageId: result.messageId };
     },
   });
 }

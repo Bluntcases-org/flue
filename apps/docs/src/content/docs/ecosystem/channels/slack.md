@@ -209,24 +209,20 @@ Use the client to define application-owned tools:
 
 ```ts title="src/channels/slack.ts"
 import { defineTool } from '@flue/runtime';
+import * as v from 'valibot';
 
 export function replyInThread(ref: { channelId: string; threadTs: string }) {
   return defineTool({
     name: 'reply_in_slack_thread',
     description: 'Reply in the Slack thread bound to this agent.',
-    parameters: {
-      type: 'object',
-      properties: { text: { type: 'string', minLength: 1 } },
-      required: ['text'],
-      additionalProperties: false,
-    },
-    async execute({ text }) {
+    input: v.object({ text: v.pipe(v.string(), v.minLength(1)) }),
+    async run({ input: { text } }) {
       const result = await client.chat.postMessage({
         channel: ref.channelId,
         thread_ts: ref.threadTs,
         text,
       });
-      return JSON.stringify({ channel: result.channel, ts: result.ts });
+      return { channel: result.channel ?? null, ts: result.ts ?? null };
     },
   });
 }

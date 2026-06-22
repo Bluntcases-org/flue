@@ -24,22 +24,26 @@ const orderStatuses = new Map([
 export const lookupOrderStatus = defineTool({
   name: 'lookup_order_status',
   description: 'Look up the current fulfillment status for one order ID.',
-  parameters: v.object({
+  input: v.object({
     orderId: v.pipe(v.string(), v.description('Order ID in the form order_1234')),
   }),
-  execute: async ({ orderId }) => {
-    const status = orderStatuses.get(orderId);
-    return status ?? 'No order was found.';
+  output: v.object({
+    status: v.nullable(v.string()),
+  }),
+  async run({ input, signal }) {
+    const status = orderStatuses.get(input.orderId) ?? null;
+    return { status };
   },
 });
 ```
 
-A custom tool has four parts:
+A custom tool has these parts:
 
 - `name` is the model-facing name used to call the tool.
 - `description` helps the model decide when the capability is appropriate.
-- `parameters` describes the inputs the model may supply. For authored tools, build this schema with [valibot](https://valibot.dev) (`v.object({ ... })`); a raw JSON Schema object is also accepted for schemas produced elsewhere.
-- `execute` performs the application-controlled work and returns text for the model to use in its response. Arguments are validated and parsed against the schema before `execute` runs, so the callback receives typed values; when validation fails, the model receives the schema issues as a tool error and can retry with corrected arguments.
+- `input` is an optional top-level [Valibot](https://valibot.dev) object schema for model-supplied input. Flue validates and parses it before `run`; when validation fails, the model receives a tool error and can retry.
+- `output` is an optional Valibot schema for typed structured output. Flue validates the result, snapshots it as JSON-compatible data, and JSON-stringifies it for the model.
+- `run({ input, signal })` performs the application-controlled work. `input` is available when declared, and `signal` can cancel downstream work. Without an `output` schema, return JSON-compatible data; returning `undefined` sends `null` to the model.
 
 Use clear action-oriented names, such as `lookup_order_status` or `create_support_ticket`. Tools available during the same operation must have distinct names.
 
@@ -79,11 +83,11 @@ export default defineAgent(({ id: customerId }) => ({
     defineTool({
       name: 'lookup_customer_order',
       description: 'Look up one order belonging to this customer.',
-      parameters: v.object({
+      input: v.object({
         orderId: v.string(),
       }),
-      execute: async ({ orderId }) => {
-        const status = await orders.getStatus(customerId, orderId);
+      async run({ input }) {
+        const status = await orders.getStatus(customerId, input.orderId);
         return status ?? 'No accessible order was found.';
       },
     }),
@@ -99,9 +103,9 @@ The same principle applies in workflows. Configure bounded tools on the workflow
 const lookupCustomerOrder = defineTool({
   name: 'lookup_customer_order',
   description: 'Look up one order belonging to the authenticated customer.',
-  parameters: v.object({ orderId: v.string() }),
-  execute: async ({ orderId }) => {
-    const status = await orders.getStatus(customer.id, orderId);
+  input: v.object({ orderId: v.string() }),
+  async run({ input }) {
+    const status = await orders.getStatus(customer.id, input.orderId);
     return status ?? 'No accessible order was found.';
   },
 });
@@ -131,6 +135,7 @@ outbound actions its agents need:
 ```ts title="src/channels/github.ts"
 import { defineTool } from '@flue/runtime';
 import { Octokit } from '@octokit/rest';
+import * as v from 'valibot';
 
 export const client = new Octokit({
   auth: process.env.GITHUB_TOKEN,
@@ -140,17 +145,18 @@ export function commentOnIssue(ref: { owner: string; repo: string; issueNumber: 
   return defineTool({
     name: 'comment_on_github_issue',
     description: 'Comment on the GitHub issue bound to this agent.',
-    parameters: v.object({
+    input: v.object({
       body: v.string(),
     }),
-    async execute({ body }) {
+    async run({ input, signal }) {
       await client.rest.issues.createComment({
         owner: ref.owner,
         repo: ref.repo,
         issue_number: ref.issueNumber,
-        body,
+        body: input.body,
+        request: { signal },
       });
-      return 'Comment posted.';
+      return { posted: true };
     },
   });
 }

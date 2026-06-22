@@ -24,6 +24,8 @@ Install `@flue/slack` and Slack's official
 uses Fetch and supports Cloudflare Workers with Flue's existing
 `nodejs_compat` configuration.
 
+Install `valibot` using the project's existing dependency conventions.
+
 ## Create the channel
 
 Create `<source-dir>/channels/slack.ts`. Adapt the imported agent and dispatched
@@ -34,6 +36,7 @@ input to the application:
 import { defineTool, dispatch } from '@flue/runtime';
 import { createSlackChannel } from '@flue/slack';
 import { WebClient } from '@slack/web-api';
+import * as v from 'valibot';
 import assistant from '../agents/assistant.ts';
 
 export const client = new WebClient(process.env.SLACK_BOT_TOKEN);
@@ -87,19 +90,18 @@ export function replyInThread(ref: { channelId: string; threadTs: string }) {
   return defineTool({
     name: 'reply_in_slack_thread',
     description: 'Reply in the Slack thread bound to this agent.',
-    parameters: {
-      type: 'object',
-      properties: { text: { type: 'string', minLength: 1 } },
-      required: ['text'],
-      additionalProperties: false,
-    },
-    async execute({ text }) {
+    input: v.object({ text: v.pipe(v.string(), v.minLength(1)) }),
+    async run({ input }) {
+      const { text } = input;
       const result = await client.chat.postMessage({
         channel: ref.channelId,
         thread_ts: ref.threadTs,
         text,
       });
-      return JSON.stringify({ channel: result.channel, ts: result.ts });
+      return {
+        ...(result.channel === undefined ? {} : { channel: result.channel }),
+        ...(result.ts === undefined ? {} : { ts: result.ts }),
+      };
     },
   });
 }

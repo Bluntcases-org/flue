@@ -6,8 +6,8 @@ export const route: AgentRouteHandler = async (_c, next) => next();
 const getServiceStatus = defineTool({
 	name: 'get_service_status',
 	description: 'Look up the current operational status for a service.',
-	parameters: v.object({ service: v.string() }),
-	execute: async ({ service }) => `${service}: operational`,
+	input: v.object({ service: v.string() }),
+	run: async ({ input }) => `${input.service}: operational`,
 });
 
 export default defineAgent(() => ({

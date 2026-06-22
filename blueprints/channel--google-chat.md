@@ -25,6 +25,8 @@ on Node-oriented authentication and HTTP packages. Use the documented
 service-account JWT assertion, OAuth token exchange, and Chat REST protocols
 through Fetch so the same code runs on Node and Cloudflare Workers.
 
+Install `valibot` using the project's existing dependency conventions.
+
 ## Create the Fetch client
 
 Create `<source-dir>/lib/google-chat-client.ts`. Keep helpers outside the
@@ -60,6 +62,7 @@ dispatched input, event policy, and tool:
 // flue-blueprint: channel/google-chat@1
 import { createGoogleChatChannel, type GoogleChatConversationRef } from '@flue/google-chat';
 import { defineTool, dispatch } from '@flue/runtime';
+import * as v from 'valibot';
 import assistant from '../agents/assistant.ts';
 import { createGoogleChatClient } from '../lib/google-chat-client.ts';
 
@@ -140,15 +143,11 @@ export function postMessage(ref: GoogleChatConversationRef) {
   return defineTool({
     name: 'post_google_chat_message',
     description: 'Post a message to the Google Chat conversation bound to this agent.',
-    parameters: {
-      type: 'object',
-      properties: { text: { type: 'string', minLength: 1 } },
-      required: ['text'],
-      additionalProperties: false,
-    },
-    async execute({ text }) {
+    input: v.object({ text: v.pipe(v.string(), v.minLength(1)) }),
+    async run({ input }) {
+      const { text } = input;
       const message = await client.postMessage(ref, text);
-      return JSON.stringify({ message: message.name });
+      return { message: message.name };
     },
   });
 }

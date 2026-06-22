@@ -5,6 +5,7 @@ import {
 } from '@flue/linear';
 import { defineTool, dispatch } from '@flue/runtime';
 import { LinearClient } from '@linear/sdk';
+import * as v from 'valibot';
 import type {
 	AgentSessionEventWebhookPayload,
 	EntityWebhookPayloadWithCommentData,
@@ -81,28 +82,25 @@ export function postMessage(ref: LinearConversationRef) {
 	return defineTool({
 		name: 'post_linear_message',
 		description: 'Post a message to the Linear conversation bound to this agent.',
-		parameters: {
-			type: 'object',
-			properties: {
-				text: { type: 'string', minLength: 1 },
-			},
-			required: ['text'],
-			additionalProperties: false,
-		},
-		async execute({ text }) {
+		input: v.object({ text: v.pipe(v.string(), v.minLength(1)) }),
+		async run({ input }) {
+			const { text } = input;
 			if (ref.type === 'agent-session') {
 				const result = await client.createAgentActivity({
 					agentSessionId: ref.agentSessionId,
 					content: { type: 'response', body: text },
 				});
-				return JSON.stringify({ success: result.success });
+				return { success: result.success };
 			}
 			const result = await client.createComment({
 				issueId: ref.issueId,
 				...(ref.threadCommentId === undefined ? {} : { parentId: ref.threadCommentId }),
 				body: text,
 			});
-			return JSON.stringify({ success: result.success, commentId: result.commentId });
+			return {
+				success: result.success,
+				...(result.commentId === undefined ? {} : { commentId: result.commentId }),
+			};
 		},
 	});
 }

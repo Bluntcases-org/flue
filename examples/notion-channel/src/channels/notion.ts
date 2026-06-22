@@ -55,14 +55,8 @@ export function retrievePage(pageId: string) {
 	return defineTool({
 		name: 'retrieve_notion_page',
 		description: 'Retrieve the current Notion page bound to this agent.',
-		parameters: {
-			type: 'object',
-			properties: {},
-			additionalProperties: false,
-		},
-		async execute() {
-			const page = await client.pages.retrieve({ page_id: pageId });
-			return JSON.stringify(page);
+		async run() {
+			return client.pages.retrieve({ page_id: pageId });
 		},
 	});
 }

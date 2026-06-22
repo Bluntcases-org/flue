@@ -5,10 +5,18 @@ import {
 	registerFauxProvider,
 } from '@earendil-works/pi-ai';
 import * as v from 'valibot';
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { defineAgent, defineTool, ToolNameConflictError } from '../src/index.ts';
+import { afterEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
+import {
+	defineAgent,
+	defineTool,
+	ToolLegacyDefinitionError,
+	ToolNameConflictError,
+	type ToolInput,
+	type ToolOutput,
+} from '../src/index.ts';
 import { createFlueContext, InMemorySessionStore } from '../src/internal.ts';
-import type { SessionData, SessionStore } from '../src/types.ts';
+import { validateAndRunTool } from '../src/tool.ts';
+import type { FlueEvent, SessionData, SessionStore } from '../src/types.ts';
 import { createNoopSessionEnv } from './fixtures/session-env.ts';
 
 const providers: FauxProviderRegistration[] = [];
@@ -46,9 +54,7 @@ function createContext(
 	return createFlueContext({
 		id: 'tool-test-instance',
 		env: {},
-		agentConfig: {
-			resolveModel: () => provider.getModel(),
-		},
+		agentConfig: { resolveModel: () => provider.getModel() },
 		createDefaultEnv: async () => createNoopSessionEnv(),
 		defaultStore: store,
 	});
@@ -62,199 +68,216 @@ async function createSession(provider: FauxProviderRegistration) {
 }
 
 describe('defineTool()', () => {
-	it('rejects a tool definition when its name is empty', () => {
-		expect(() =>
-			defineTool({
-				name: '',
-				description: 'Look up a value.',
-				parameters: v.object({}),
-				execute: async () => 'ok',
-			}),
-		).toThrow('name');
+	it('infers transformed input and output types when schemas are declared', () => {
+		const tool = defineTool({
+			name: 'lookup',
+			description: 'Look up a value.',
+			input: v.object({ count: v.pipe(v.string(), v.transform(Number)) }),
+			output: v.pipe(v.number(), v.transform(String)),
+			run({ input, signal }) {
+				expectTypeOf(input).toEqualTypeOf<{ count: number }>();
+				expectTypeOf(signal).toEqualTypeOf<AbortSignal | undefined>();
+				return input.count;
+			},
+		});
+
+		expectTypeOf<ToolInput<typeof tool>>().toEqualTypeOf<{ count: string }>();
+		expectTypeOf<ToolOutput<typeof tool>>().toEqualTypeOf<string>();
 	});
 
-	it('rejects a tool definition when its description is empty', () => {
-		expect(() =>
-			defineTool({
-				name: 'lookup',
-				description: '',
-				parameters: v.object({}),
-				execute: async () => 'ok',
-			}),
-		).toThrow('description');
+	it('omits input from run context when no input schema is declared', () => {
+		defineTool({
+			name: 'refresh',
+			description: 'Refresh values.',
+			run(context) {
+				expectTypeOf(context).not.toHaveProperty('input');
+				return undefined;
+			},
+		});
 	});
 
-	it('rejects a tool definition when its parameter schema is missing', () => {
-		expect(() =>
-			defineTool({
-				name: 'lookup',
-				description: 'Look up a value.',
-				execute: async () => 'ok',
-			} as never),
-		).toThrow('parameters');
-	});
-
-	it('rejects a tool definition when its execute callback is missing', () => {
-		expect(() =>
+	it('rejects explicitly undefined legacy markers with structured fields', () => {
+		let thrown: unknown;
+		try {
 			defineTool({
 				name: 'lookup',
 				description: 'Look up a value.',
-				parameters: v.object({}),
-			} as never),
-		).toThrow('execute');
+				run: async () => 'ok',
+				parameters: undefined,
+				execute: undefined,
+			} as never);
+		} catch (error) {
+			thrown = error;
+		}
+
+		expect(thrown).toBeInstanceOf(ToolLegacyDefinitionError);
+		expect(thrown).toMatchObject({
+			type: 'tool_legacy_definition',
+			details: 'The tool definition contains legacy fields.',
+			meta: { fields: ['parameters', 'execute'] },
+		});
 	});
 
-	it('rejects a non-Valibot Standard Schema before normalization', () => {
-		expect(() =>
-			defineTool({
-				name: 'lookup',
-				description: 'Look up a value.',
-				parameters: {
-					'~standard': {
-						version: 1,
-						vendor: 'other',
-						validate: () => ({ value: {} }),
-					},
-				},
-				execute: async () => 'ok',
-			}),
-		).toThrow('must use a Valibot schema');
-	});
-
-	it('rejects a valibot parameters schema when its top level is not an object', () => {
+	it('rejects a non-object input schema when input is declared', () => {
 		expect(() =>
 			defineTool({
 				name: 'lookup',
 				description: 'Look up a value.',
-				parameters: v.string(),
-				execute: async () => 'ok',
+				input: v.string() as never,
+				run: async () => 'ok',
 			}),
 		).toThrow('top-level object schema');
 	});
 
-	it('throws with Standard Schema issues when execute arguments fail the valibot schema', async () => {
-		const lookup = defineTool({
+	it('applies input defaults and transforms before run receives input', async () => {
+		const run = vi.fn(({ input }: { input: { limit: number } }) => input.limit);
+		const tool = defineTool({
+			name: 'lookup',
+			description: 'Look up recent values.',
+			input: v.object({
+				limit: v.optional(v.pipe(v.string(), v.transform(Number)), '10'),
+			}),
+			run,
+		});
+
+		await expect(validateAndRunTool(tool, {})).resolves.toBe(10);
+		expect(run).toHaveBeenCalledWith({ input: { limit: 10 }, signal: undefined });
+	});
+
+	it('throws structured issues when input validation fails', async () => {
+		const run = vi.fn(async () => 'ok');
+		const tool = defineTool({
 			name: 'lookup',
 			description: 'Look up an order.',
-			parameters: v.object({
+			input: v.object({
 				orderId: v.pipe(
 					v.string(),
 					v.check((id) => id.startsWith('order_'), 'Order IDs start with "order_".'),
 				),
 			}),
-			execute: async () => 'ok',
+			run,
 		});
 
-		await expect(lookup.execute({ orderId: 'invoice_7' })).rejects.toMatchObject({
+		await expect(validateAndRunTool(tool, { orderId: 'invoice_7' })).rejects.toMatchObject({
 			type: 'tool_input_validation',
 			meta: {
 				tool: 'lookup',
 				issues: [{ message: 'Order IDs start with "order_".', path: ['orderId'] }],
 			},
 		});
+		expect(run).not.toHaveBeenCalled();
 	});
 
-	it('applies valibot defaults and transforms before execute receives arguments', async () => {
-		const lookup = defineTool({
-			name: 'lookup',
-			description: 'Look up recent values.',
-			parameters: v.object({ limit: v.optional(v.number(), 10) }),
-			execute: async ({ limit }) => `limit:${limit}`,
+	it('applies output transforms before returning output', async () => {
+		const tool = defineTool({
+			name: 'count',
+			description: 'Count values.',
+			output: v.pipe(v.number(), v.transform((count) => ({ count }))),
+			run: async () => 2,
 		});
 
-		await expect(lookup.execute({})).resolves.toBe('limit:10');
+		await expect(validateAndRunTool(tool, {})).resolves.toEqual({ count: 2 });
+	});
+
+	it('throws structured issues when output validation fails', async () => {
+		const tool = defineTool({
+			name: 'count',
+			description: 'Count values.',
+			output: v.number(),
+			run: async () => 'two' as never,
+		});
+
+		await expect(validateAndRunTool(tool, {})).rejects.toMatchObject({
+			type: 'tool_output_validation',
+			meta: { tool: 'count', issues: [expect.objectContaining({ message: expect.any(String) })] },
+		});
+	});
+
+	it('rejects undefined produced by a cast declared output schema at runtime', async () => {
+		const tool = defineTool({
+			name: 'undefined_output',
+			description: 'Produces undefined despite a declared output.',
+			output: v.undefined() as never,
+			run: async () => undefined as never,
+		});
+
+		await expect(validateAndRunTool(tool)).rejects.toMatchObject({
+			type: 'tool_output_serialization',
+			meta: { tool: 'undefined_output' },
+		});
+	});
+
+	it('rejects values that JSON.stringify would silently discard', async () => {
+		const tool = defineTool({
+			name: 'lookup',
+			description: 'Look up a value.',
+			run: async () => ({ kept: true, discarded: undefined }) as never,
+		});
+
+		await expect(validateAndRunTool(tool, {})).rejects.toMatchObject({
+			type: 'tool_output_serialization',
+			meta: { tool: 'lookup' },
+		});
+	});
+
+	it('returns a detached JSON snapshot of output', async () => {
+		const output = { nested: { count: 1 } };
+		const tool = defineTool({
+			name: 'lookup',
+			description: 'Look up a value.',
+			run: async () => output,
+		});
+
+		const result = await validateAndRunTool(tool, {});
+		output.nested.count = 2;
+
+		expect(result).toEqual({ nested: { count: 1 } });
+		expect(result).not.toBe(output);
 	});
 });
 
 describe('custom tools', () => {
-	it('rejects a custom tool when an operation activates a name reserved by a built-in tool', async () => {
-		const session = await createSession(createProvider());
-
-		await expect(
-			session.prompt('Use the tool.', {
-				tools: [
-					defineTool({
-						name: 'bash',
-						description: 'Run bash.',
-						parameters: v.object({}),
-						execute: async () => 'ok',
-					}),
-				],
-			}),
-		).rejects.toThrow(ToolNameConflictError);
-	});
-
-	it('rejects a custom activate_skill tool because its name is framework-reserved', async () => {
-		const session = await createSession(createProvider());
-
-		await expect(
-			session.prompt('Use the tool.', {
-				tools: [
-					defineTool({
-						name: 'activate_skill',
-						description: 'Activate a skill.',
-						parameters: v.object({}),
-						execute: async () => 'ok',
-					}),
-				],
-			}),
-		).rejects.toThrow(ToolNameConflictError);
-	});
-
-	it('rejects a custom finish tool because its name is reserved for result capture', async () => {
-		const session = await createSession(createProvider());
-
-		await expect(
-			session.prompt('Use the tool.', {
-				tools: [
-					defineTool({
-						name: 'finish',
-						description: 'Finish the order.',
-						parameters: v.object({}),
-						execute: async () => 'ok',
-					}),
-				],
-			}),
-		).rejects.toThrow(ToolNameConflictError);
-	});
-
-	it('rejects duplicate custom tool names when an operation assembles its active tools', async () => {
+	it('rejects legacy markers on an inline runtime tool', async () => {
 		const provider = createProvider();
-		const harness = await createContext(provider).initializeRootHarness(
-			defineAgent(() => ({
-				model: `${provider.getModel().provider}/${provider.getModel().id}`,
-				tools: [
-					defineTool({
-						name: 'lookup',
-						description: 'Look up a value.',
-						parameters: v.object({}),
-						execute: async () => 'ok',
-					}),
-				],
-			})),
-		);
-		const session = await harness.session();
 
 		await expect(
-			session.prompt('Use the tool.', {
-				tools: [
-					defineTool({
-						name: 'lookup',
-						description: 'Look up another value.',
-						parameters: v.object({}),
-						execute: async () => 'ok',
-					}),
-				],
-			}),
-		).rejects.toThrow(ToolNameConflictError);
+			createContext(provider).initializeRootHarness(
+				defineAgent(() => ({
+					model: `${provider.getModel().provider}/${provider.getModel().id}`,
+					tools: [
+						{
+							name: 'lookup',
+							description: 'Look up a value.',
+							run: async () => 'ok',
+							parameters: undefined,
+						} as never,
+					],
+				})),
+			),
+		).rejects.toThrow(ToolLegacyDefinitionError);
 	});
 
-	it('exposes agent-level custom tools when a model operation begins', async () => {
+	it('renders string, object, null, and no-output undefined as JSON for the model', async () => {
 		const provider = createProvider();
-		const activeToolNames: string[] = [];
+		const modelResults: unknown[] = [];
 		provider.setResponses([
+			fauxAssistantMessage(fauxToolCall('render_string', {}), { stopReason: 'toolUse' }),
 			(context) => {
-				activeToolNames.push(...(context.tools ?? []).map((tool) => tool.name));
+				modelResults.push(context.messages.at(-1));
+				return fauxAssistantMessage(fauxToolCall('render_object', {}), { stopReason: 'toolUse' });
+			},
+			(context) => {
+				modelResults.push(context.messages.at(-1));
+				return fauxAssistantMessage(fauxToolCall('render_null', {}), { stopReason: 'toolUse' });
+			},
+			(context) => {
+				modelResults.push(context.messages.at(-1));
+				return fauxAssistantMessage(fauxToolCall('render_undefined', {}), {
+					stopReason: 'toolUse',
+				});
+			},
+			(context) => {
+				modelResults.push(context.messages.at(-1));
 				return fauxAssistantMessage('Done.');
 			},
 		]);
@@ -263,60 +286,116 @@ describe('custom tools', () => {
 				model: `${provider.getModel().provider}/${provider.getModel().id}`,
 				tools: [
 					defineTool({
+						name: 'render_string',
+						description: 'Render a string.',
+						run: async () => 'hello',
+					}),
+					defineTool({
+						name: 'render_object',
+						description: 'Render an object.',
+						run: async () => ({ count: 2 }),
+					}),
+					defineTool({
+						name: 'render_null',
+						description: 'Render null.',
+						run: async () => null,
+					}),
+					defineTool({
+						name: 'render_undefined',
+						description: 'Render no output.',
+						run: async () => undefined,
+					}),
+				],
+			})),
+		);
+
+		await (await harness.session()).prompt('Render values.');
+
+		expect(modelResults).toEqual([
+			expect.objectContaining({ content: [{ type: 'text', text: '"hello"' }] }),
+			expect.objectContaining({ content: [{ type: 'text', text: '{"count":2}' }] }),
+			expect.objectContaining({ content: [{ type: 'text', text: 'null' }] }),
+			expect.objectContaining({ content: [{ type: 'text', text: 'null' }] }),
+		]);
+	});
+
+	it('publishes canonical output in tool event details', async () => {
+		const provider = createProvider();
+		provider.setResponses([
+			fauxAssistantMessage(fauxToolCall('lookup', {}), { stopReason: 'toolUse' }),
+			fauxAssistantMessage('Done.'),
+		]);
+		const events: FlueEvent[] = [];
+		const context = createContext(provider);
+		context.subscribeEvent((event) => {
+			events.push(event);
+		});
+		const harness = await context.initializeRootHarness(
+			defineAgent(() => ({
+				model: `${provider.getModel().provider}/${provider.getModel().id}`,
+				tools: [
+					defineTool({
 						name: 'lookup',
 						description: 'Look up a value.',
-						parameters: v.object({}),
-						execute: async () => 'ok',
+						run: async () => ({ found: true }),
+					}),
+				],
+			})),
+		);
+
+		await (await harness.session()).prompt('Look up the value.');
+
+		expect(events.find((event) => event.type === 'tool' && event.toolName === 'lookup')).toMatchObject({
+			result: { details: { customTool: 'lookup', output: { found: true } } },
+		});
+	});
+
+	it('caches one frozen provider schema across model turns', async () => {
+		const provider = createProvider();
+		const schemas: unknown[] = [];
+		provider.setResponses([
+			(context) => {
+				schemas.push(context.tools?.find((tool) => tool.name === 'lookup')?.parameters);
+				return fauxAssistantMessage('First.');
+			},
+			(context) => {
+				schemas.push(context.tools?.find((tool) => tool.name === 'lookup')?.parameters);
+				return fauxAssistantMessage('Second.');
+			},
+		]);
+		const harness = await createContext(provider).initializeRootHarness(
+			defineAgent(() => ({
+				model: `${provider.getModel().provider}/${provider.getModel().id}`,
+				tools: [
+					defineTool({
+						name: 'lookup',
+						description: 'Look up a value.',
+						input: v.object({ query: v.string() }),
+						run: async () => 'ok',
 					}),
 				],
 			})),
 		);
 		const session = await harness.session();
 
-		await session.prompt('List your tools.');
+		await session.prompt('First prompt.');
+		await session.prompt('Second prompt.');
 
-		expect(activeToolNames).toContain('lookup');
-	});
-
-	it('exposes call-level custom tools only when the receiving operation begins', async () => {
-		const provider = createProvider();
-		const activeToolNames: string[][] = [];
-		provider.setResponses([
-			(context) => {
-				activeToolNames.push((context.tools ?? []).map((tool) => tool.name));
-				return fauxAssistantMessage('First response.');
-			},
-			(context) => {
-				activeToolNames.push((context.tools ?? []).map((tool) => tool.name));
-				return fauxAssistantMessage('Second response.');
-			},
-		]);
-		const session = await createSession(provider);
-
-		await session.prompt('Answer without the call tool.');
-		await session.prompt('Answer with the call tool.', {
-			tools: [
-				defineTool({
-					name: 'lookup',
-					description: 'Look up a value.',
-					parameters: v.object({}),
-					execute: async () => 'ok',
-				}),
-			],
+		expect(schemas[0]).toEqual({
+			type: 'object',
+			properties: { query: { type: 'string' } },
+			required: ['query'],
 		});
-
-		expect(activeToolNames[0]).not.toContain('lookup');
-		expect(activeToolNames[1]).toContain('lookup');
+		expect(schemas[1]).toBe(schemas[0]);
+		expect(Object.isFrozen(schemas[0])).toBe(true);
 	});
 
-	it('forwards validated arguments and the operation abort signal when a model invokes a custom tool', async () => {
+	it('forwards parsed input and the operation abort signal to run', async () => {
 		const provider = createProvider();
 		provider.setResponses([
-			fauxAssistantMessage(fauxToolCall('lookup', { count: '2' } as never), {
-				stopReason: 'toolUse',
-			}),
+			fauxAssistantMessage(fauxToolCall('lookup', { count: 2 }), { stopReason: 'toolUse' }),
 		]);
-		let receivedArgs: Record<string, unknown> | undefined;
+		let receivedInput: unknown;
 		let receivedSignal: AbortSignal | undefined;
 		let markStarted: () => void = () => {};
 		const started = new Promise<void>((resolve) => {
@@ -325,9 +404,9 @@ describe('custom tools', () => {
 		const lookup = defineTool({
 			name: 'lookup',
 			description: 'Look up a count.',
-			parameters: v.object({ count: v.number() }),
-			execute: async (args, signal) => {
-				receivedArgs = args;
+			input: v.object({ count: v.number() }),
+			async run({ input, signal }) {
+				receivedInput = input;
 				receivedSignal = signal;
 				markStarted();
 				await new Promise<void>((resolve) => signal?.addEventListener('abort', () => resolve()));
@@ -347,12 +426,56 @@ describe('custom tools', () => {
 		operation.abort('stop');
 
 		await expect(operation).rejects.toMatchObject({ name: 'AbortError' });
-		expect(receivedArgs).toEqual({ count: 2 });
-		expect(receivedSignal).toBeInstanceOf(AbortSignal);
+		expect(receivedInput).toEqual({ count: 2 });
 		expect(receivedSignal?.aborted).toBe(true);
 	});
 
-	it('persists a completed tool-result batch before requesting follow-up inference', async () => {
+	it('rejects a custom tool when its name collides with a built-in tool', async () => {
+		const session = await createSession(createProvider());
+
+		await expect(
+			session.prompt('Use the tool.', {
+				tools: [
+					defineTool({
+						name: 'bash',
+						description: 'Run bash.',
+						run: async () => 'ok',
+					}),
+				],
+			}),
+		).rejects.toThrow(ToolNameConflictError);
+	});
+
+	it('rejects duplicate custom tool names when active tools are assembled', async () => {
+		const provider = createProvider();
+		const harness = await createContext(provider).initializeRootHarness(
+			defineAgent(() => ({
+				model: `${provider.getModel().provider}/${provider.getModel().id}`,
+				tools: [
+					defineTool({
+						name: 'lookup',
+						description: 'Look up a value.',
+						run: async () => 'ok',
+					}),
+				],
+			})),
+		);
+		const session = await harness.session();
+
+		await expect(
+			session.prompt('Use the tool.', {
+				tools: [
+					defineTool({
+						name: 'lookup',
+						description: 'Look up another value.',
+						run: async () => 'ok',
+					}),
+				],
+			}),
+		).rejects.toThrow(ToolNameConflictError);
+	});
+
+	it('persists a completed tool result before requesting follow-up inference', async () => {
 		const provider = createProvider();
 		const store = new RecordingSessionStore();
 		provider.setResponses([
@@ -368,15 +491,14 @@ describe('custom tools', () => {
 						message: expect.objectContaining({ role: 'toolResult', toolName: 'lookup' }),
 					}),
 				]);
-				expect(context.messages.at(-1)).toMatchObject({ role: 'toolResult', toolName: 'lookup' });
 				return fauxAssistantMessage('Lookup complete.');
 			},
 		]);
 		const lookup = defineTool({
 			name: 'lookup',
 			description: 'Look up a value.',
-			parameters: v.object({ query: v.string() }),
-			execute: async () => 'Found the requested value.',
+			input: v.object({ query: v.string() }),
+			run: async () => 'Found the requested value.',
 		});
 		const harness = await createContext(provider, store).initializeRootHarness(
 			defineAgent(() => ({
@@ -384,223 +506,9 @@ describe('custom tools', () => {
 				tools: [lookup],
 			})),
 		);
-		const session = await harness.session();
 
-		await expect(session.prompt('Look up flue.')).resolves.toMatchObject({
+		await expect((await harness.session()).prompt('Look up flue.')).resolves.toMatchObject({
 			text: 'Lookup complete.',
 		});
-	});
-
-	it('does not begin a follow-up provider turn when persisting the completed prior turn fails', async () => {
-		const provider = createProvider();
-		const store = new RecordingSessionStore();
-		const save = store.save.bind(store);
-		store.save = async (id, data) => {
-			if (
-				data.entries.some(
-					(entry) =>
-						entry.type === 'message' &&
-						entry.message.role === 'toolResult' &&
-						entry.message.toolName === 'lookup',
-				)
-			) {
-				throw new Error('persist failed');
-			}
-			await save(id, data);
-		};
-		provider.setResponses([
-			fauxAssistantMessage(fauxToolCall('lookup', { query: 'flue' }), { stopReason: 'toolUse' }),
-			fauxAssistantMessage('Should not be requested.'),
-		]);
-		const lookup = defineTool({
-			name: 'lookup',
-			description: 'Look up a value.',
-			parameters: v.object({ query: v.string() }),
-			execute: async () => 'Found the requested value.',
-		});
-		const harness = await createContext(provider, store).initializeRootHarness(
-			defineAgent(() => ({
-				model: `${provider.getModel().provider}/${provider.getModel().id}`,
-				tools: [lookup],
-			})),
-		);
-		const session = await harness.session();
-
-		await expect(session.prompt('Look up flue.')).rejects.toThrow('persist failed');
-		expect(provider.state.callCount).toBe(1);
-	});
-
-	it('returns callback output to the model when a custom tool completes', async () => {
-		const provider = createProvider();
-		const execute = vi.fn(async () => 'Found the requested value.');
-		let modelToolResult: unknown;
-		provider.setResponses([
-			fauxAssistantMessage(fauxToolCall('lookup', { query: 'flue' }), { stopReason: 'toolUse' }),
-			(context) => {
-				modelToolResult = context.messages.at(-1);
-				return fauxAssistantMessage('Lookup complete.');
-			},
-		]);
-		const lookup = defineTool({
-			name: 'lookup',
-			description: 'Look up a value.',
-			parameters: v.object({ query: v.string() }),
-			execute,
-		});
-		const harness = await createContext(provider).initializeRootHarness(
-			defineAgent(() => ({
-				model: `${provider.getModel().provider}/${provider.getModel().id}`,
-				tools: [lookup],
-			})),
-		);
-		const session = await harness.session();
-
-		const result = await session.prompt('Look up flue.');
-
-		expect(execute).toHaveBeenCalledWith({ query: 'flue' }, expect.any(AbortSignal));
-		expect(modelToolResult).toMatchObject({
-			role: 'toolResult',
-			toolName: 'lookup',
-			content: [{ type: 'text', text: 'Found the requested value.' }],
-			isError: false,
-		});
-		expect(result.text).toBe('Lookup complete.');
-	});
-
-	it('exposes valibot parameters to the provider as one stable plain JSON Schema object', async () => {
-		const provider = createProvider();
-		const parameterSchemas: unknown[] = [];
-		provider.setResponses([
-			(context) => {
-				parameterSchemas.push(context.tools?.find((tool) => tool.name === 'lookup')?.parameters);
-				return fauxAssistantMessage('First.');
-			},
-			(context) => {
-				parameterSchemas.push(context.tools?.find((tool) => tool.name === 'lookup')?.parameters);
-				return fauxAssistantMessage('Second.');
-			},
-		]);
-		const harness = await createContext(provider).initializeRootHarness(
-			defineAgent(() => ({
-				model: `${provider.getModel().provider}/${provider.getModel().id}`,
-				tools: [
-					defineTool({
-						name: 'lookup',
-						description: 'Look up a value.',
-						parameters: v.object({ query: v.string() }),
-						execute: async () => 'ok',
-					}),
-				],
-			})),
-		);
-		const session = await harness.session();
-
-		await session.prompt('First prompt.');
-		await session.prompt('Second prompt.');
-
-		expect(parameterSchemas[0]).toEqual({
-			type: 'object',
-			properties: { query: { type: 'string' } },
-			required: ['query'],
-		});
-		// Same object identity across turns: the agent loop caches compiled
-		// argument validators keyed by schema identity.
-		expect(parameterSchemas[1]).toBe(parameterSchemas[0]);
-		expect(Object.isFrozen(parameterSchemas[0])).toBe(true);
-		expect(Object.isFrozen((parameterSchemas[0] as { properties: object }).properties)).toBe(true);
-		expect(() => {
-			(parameterSchemas[0] as { type: string }).type = 'string';
-		}).toThrow(TypeError);
-	});
-
-	it('returns a schema error to the model instead of calling execute when arguments fail valibot validation', async () => {
-		const provider = createProvider();
-		const execute = vi.fn(async () => 'ok');
-		let modelToolResult: unknown;
-		provider.setResponses([
-			fauxAssistantMessage(fauxToolCall('lookup', { orderId: 'invoice_7' }), {
-				stopReason: 'toolUse',
-			}),
-			(context) => {
-				modelToolResult = context.messages.at(-1);
-				return fauxAssistantMessage('Understood, correcting.');
-			},
-		]);
-		const lookup = defineTool({
-			name: 'lookup',
-			description: 'Look up an order.',
-			parameters: v.object({
-				orderId: v.pipe(
-					v.string(),
-					v.check((id) => id.startsWith('order_'), 'Order IDs start with "order_".'),
-				),
-			}),
-			execute,
-		});
-		const harness = await createContext(provider).initializeRootHarness(
-			defineAgent(() => ({
-				model: `${provider.getModel().provider}/${provider.getModel().id}`,
-				tools: [lookup],
-			})),
-		);
-		const session = await harness.session();
-
-		const result = await session.prompt('Look up invoice_7.');
-
-		expect(execute).not.toHaveBeenCalled();
-		expect(modelToolResult).toMatchObject({
-			role: 'toolResult',
-			toolName: 'lookup',
-			isError: true,
-			content: [
-				{
-					type: 'text',
-					text: expect.stringContaining('Order IDs start with "order_". (at orderId)'),
-				},
-			],
-		});
-		expect(result.text).toBe('Understood, correcting.');
-	});
-
-	it('passes raw JSON Schema parameters through unchanged when a tool uses the escape hatch', async () => {
-		const provider = createProvider();
-		const rawSchema = {
-			type: 'object',
-			properties: { query: { type: 'string', description: 'Search query.' } },
-			required: ['query'],
-			additionalProperties: false,
-		};
-		let providerSchema: unknown;
-		let receivedArgs: unknown;
-		provider.setResponses([
-			(context) => {
-				providerSchema = context.tools?.find((tool) => tool.name === 'lookup')?.parameters;
-				return fauxAssistantMessage(fauxToolCall('lookup', { query: 'flue' }), {
-					stopReason: 'toolUse',
-				});
-			},
-			fauxAssistantMessage('Done.'),
-		]);
-		const lookup = defineTool({
-			name: 'lookup',
-			description: 'Look up a value.',
-			parameters: rawSchema,
-			execute: async (args) => {
-				receivedArgs = args;
-				return 'ok';
-			},
-		});
-		const harness = await createContext(provider).initializeRootHarness(
-			defineAgent(() => ({
-				model: `${provider.getModel().provider}/${provider.getModel().id}`,
-				tools: [lookup],
-			})),
-		);
-		const session = await harness.session();
-
-		await session.prompt('Look up flue.');
-
-		expect(providerSchema).toBe(rawSchema);
-		expect(receivedArgs).toEqual({ query: 'flue' });
 	});
 });

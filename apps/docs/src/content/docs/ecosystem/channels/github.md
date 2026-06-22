@@ -90,6 +90,7 @@ existing secret system.
 import { createGitHubChannel } from '@flue/github';
 import { defineTool, dispatch } from '@flue/runtime';
 import { Octokit } from '@octokit/rest';
+import * as v from 'valibot';
 import assistant from '../agents/assistant.ts';
 
 export const client = new Octokit({
@@ -157,20 +158,15 @@ export function commentOnIssue(ref: { owner: string; repo: string; issueNumber: 
   return defineTool({
     name: 'comment_on_github_issue',
     description: 'Comment on the GitHub issue or pull request bound to this agent.',
-    parameters: {
-      type: 'object',
-      properties: { body: { type: 'string', minLength: 1 } },
-      required: ['body'],
-      additionalProperties: false,
-    },
-    async execute({ body }) {
+    input: v.object({ body: v.pipe(v.string(), v.minLength(1)) }),
+    async run({ input: { body } }) {
       const result = await client.rest.issues.createComment({
         owner: ref.owner,
         repo: ref.repo,
         issue_number: ref.issueNumber,
         body,
       });
-      return JSON.stringify({ commentId: result.data.id });
+      return { commentId: result.data.id };
     },
   });
 }

@@ -22,6 +22,8 @@ comments, inline review comments, opened issues, or another verified delivery.
 Install `@flue/github` and the official `@octokit/rest@^22.0.1` SDK with the
 project's package manager. Do not add a generic GitHub tool collection.
 
+Install `valibot` using the project's existing dependency conventions.
+
 ## Create the channel
 
 Create `<source-dir>/channels/github.ts`. Adapt the imported agent and dispatched
@@ -32,6 +34,7 @@ input to the application, but preserve this ownership and routing shape:
 import { createGitHubChannel } from '@flue/github';
 import { defineTool, dispatch } from '@flue/runtime';
 import { Octokit } from '@octokit/rest';
+import * as v from 'valibot';
 import assistant from '../agents/assistant.ts';
 
 export const client = new Octokit({
@@ -99,20 +102,16 @@ export function commentOnIssue(ref: { owner: string; repo: string; issueNumber: 
   return defineTool({
     name: 'comment_on_github_issue',
     description: 'Comment on the GitHub issue or pull request bound to this agent.',
-    parameters: {
-      type: 'object',
-      properties: { body: { type: 'string', minLength: 1 } },
-      required: ['body'],
-      additionalProperties: false,
-    },
-    async execute({ body }) {
+    input: v.object({ body: v.pipe(v.string(), v.minLength(1)) }),
+    async run({ input }) {
+      const { body } = input;
       const result = await client.rest.issues.createComment({
         owner: ref.owner,
         repo: ref.repo,
         issue_number: ref.issueNumber,
         body,
       });
-      return JSON.stringify({ commentId: result.data.id, url: result.data.html_url });
+      return { commentId: result.data.id, url: result.data.html_url };
     },
   });
 }

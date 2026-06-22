@@ -1,10 +1,18 @@
+import {
+	fauxAssistantMessage,
+	fauxToolCall,
+	registerFauxProvider,
+} from '@earendil-works/pi-ai';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import type { CallToolResult, Tool } from '@modelcontextprotocol/sdk/types.js';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { connectMcpServer } from '../src/index.ts';
+import { defineAgent, connectMcpServer } from '../src/index.ts';
+import { createFlueContext, InMemorySessionStore } from '../src/internal.ts';
 import { connectMcpServerWithClient } from '../src/mcp.ts';
+import { getPreparedToolAdapter } from '../src/tool-adapter.ts';
+import { createNoopSessionEnv } from './fixtures/session-env.ts';
 
 const transport = {} as Transport;
 const mcp = {
@@ -55,18 +63,24 @@ describe('connectMcpServerWithClient()', () => {
 
 		expect(mcp.client.connect).toHaveBeenCalledWith(transport);
 		expect(connection.name).toBe('catalog');
+		expect(Object.isFrozen(connection.tools[0])).toBe(true);
 		expect(connection.tools).toEqual([
 			expect.objectContaining({
 				name: 'mcp__catalog__lookup',
 				description: expect.stringContaining('Find a catalog entry.'),
-				parameters: {
-					type: 'object',
-					properties: { query: { type: 'string' } },
-					required: ['query'],
-				},
-				execute: expect.any(Function),
+				input: undefined,
+				output: undefined,
+				run: expect.any(Function),
 			}),
 		]);
+		expect(getPreparedToolAdapter(connection.tools[0]!)).toMatchObject({
+			parameters: {
+				type: 'object',
+				properties: { query: { type: 'string' } },
+				required: ['query'],
+			},
+			execute: expect.any(Function),
+		});
 	});
 
 	it('exposes tools from every tools/list page when MCP discovery is paginated', async () => {
@@ -182,7 +196,7 @@ describe('connectMcpServerWithClient()', () => {
 
 		const connection = await connectMcpServerWithClient('cache', mcp.client, transport);
 
-		expect(connection.tools[0]?.parameters).toEqual({
+		expect(getPreparedToolAdapter(connection.tools[0]!)?.parameters).toEqual({
 			type: 'object',
 			properties: {},
 			required: undefined,
@@ -206,7 +220,7 @@ describe('connectMcpServerWithClient()', () => {
 		const controller = new AbortController();
 		const connection = await connectMcpServerWithClient('catalog', mcp.client, transport);
 
-		await connection.tools[0]?.execute({ query: 'flue' }, controller.signal);
+		await getPreparedToolAdapter(connection.tools[0]!)?.execute({ query: 'flue' }, controller.signal);
 
 		expect(mcp.client.callTool).toHaveBeenCalledWith(
 			{
@@ -232,7 +246,7 @@ describe('connectMcpServerWithClient()', () => {
 			resetTimeoutOnProgress: true,
 		});
 
-		await connection.tools[0]?.execute({});
+		await getPreparedToolAdapter(connection.tools[0]!)?.execute({});
 
 		expect(mcp.client.listTools).toHaveBeenCalledWith(undefined, {
 			timeout: 120_000,
@@ -246,6 +260,74 @@ describe('connectMcpServerWithClient()', () => {
 			undefined,
 			{ timeout: 120_000, resetTimeoutOnProgress: true, signal: undefined },
 		);
+	});
+
+	it('preserves raw provider schema and execution when an MCP tool is spread and decorated', async () => {
+		mcp.listToolsResult = {
+			tools: [
+				{
+					name: 'lookup',
+					inputSchema: {
+						type: 'object',
+						properties: { query: { type: 'string', description: 'Search query.' } },
+						required: ['query'],
+						additionalProperties: false,
+					},
+				},
+			],
+		};
+		mcp.callToolResult = { content: [{ type: 'text', text: 'Found through MCP.' }] };
+		const connection = await connectMcpServerWithClient('catalog', mcp.client, transport);
+		const decoratedTool = {
+			...connection.tools[0]!,
+			description: `${connection.tools[0]!.description} Decorated.`,
+		};
+		const provider = registerFauxProvider({ provider: `mcp-test-${crypto.randomUUID()}` });
+		let providerSchema: unknown;
+		let modelToolResult: unknown;
+		provider.setResponses([
+			(context) => {
+				providerSchema = context.tools?.find(
+					(tool) => tool.name === 'mcp__catalog__lookup',
+				)?.parameters;
+				return fauxAssistantMessage(
+					fauxToolCall('mcp__catalog__lookup', { query: 'flue' }),
+					{ stopReason: 'toolUse' },
+				);
+			},
+			(context) => {
+				modelToolResult = context.messages.at(-1);
+				return fauxAssistantMessage('Done.');
+			},
+		]);
+		try {
+			const context = createFlueContext({
+				id: 'mcp-test-instance',
+				env: {},
+				agentConfig: { resolveModel: () => provider.getModel() },
+				createDefaultEnv: async () => createNoopSessionEnv(),
+				defaultStore: new InMemorySessionStore(),
+			});
+			const harness = await context.initializeRootHarness(
+				defineAgent(() => ({
+					model: `${provider.getModel().provider}/${provider.getModel().id}`,
+					tools: [decoratedTool],
+				})),
+			);
+
+			await (await harness.session()).prompt('Look up flue.');
+
+			expect(providerSchema).toEqual(mcp.listToolsResult.tools[0]?.inputSchema);
+			expect(Object.keys(decoratedTool)).toEqual(['name', 'description', 'input', 'output', 'run']);
+			expect(modelToolResult).toMatchObject({
+				role: 'toolResult',
+				toolName: 'mcp__catalog__lookup',
+				content: [{ type: 'text', text: 'Found through MCP.' }],
+			});
+		} finally {
+			provider.unregister();
+			await connection.close();
+		}
 	});
 
 	it("preserves supported MCP content in the adapted tool's readable text result when an MCP tool returns mixed content", async () => {
@@ -275,7 +357,7 @@ describe('connectMcpServerWithClient()', () => {
 		};
 		const connection = await connectMcpServerWithClient('catalog', mcp.client, transport);
 
-		const result = await connection.tools[0]?.execute({});
+		const result = await getPreparedToolAdapter(connection.tools[0]!)?.execute({});
 
 		expect(result).toContain('"count": 2');
 		expect(result).toContain('Inspection complete.');
@@ -312,7 +394,7 @@ describe('connectMcpServerWithClient()', () => {
 		mcp.callToolResult = { content: [], structuredContent: { count: 'two' } };
 		const connection = await connectMcpServerWithClient('catalog', mcp.client, transport);
 
-		await expect(connection.tools[0]?.execute({})).rejects.toThrow(
+		await expect(getPreparedToolAdapter(connection.tools[0]!)?.execute({})).rejects.toThrow(
 			"Structured content does not match the tool's output schema:",
 		);
 	});
@@ -336,7 +418,7 @@ describe('connectMcpServerWithClient()', () => {
 		mcp.callToolResult = { content: [] };
 		const connection = await connectMcpServerWithClient('catalog', mcp.client, transport);
 
-		await expect(connection.tools[0]?.execute({})).rejects.toThrow(
+		await expect(getPreparedToolAdapter(connection.tools[0]!)?.execute({})).rejects.toThrow(
 			'Tool lookup has an output schema but did not return structured content',
 		);
 	});
@@ -377,7 +459,7 @@ describe('connectMcpServerWithClient()', () => {
 		};
 		const connection = await connectMcpServerWithClient('catalog', mcp.client, transport);
 
-		await expect(connection.tools[0]?.execute({})).rejects.toThrow('Catalog unavailable.');
+		await expect(getPreparedToolAdapter(connection.tools[0]!)?.execute({})).rejects.toThrow('Catalog unavailable.');
 	});
 
 	it('closes the MCP client when connection setup fails', async () => {
@@ -410,7 +492,7 @@ describe('connectMcpServer()', () => {
 			});
 
 			expect(connection.tools.map((tool) => tool.name)).toEqual(['mcp__catalog__lookup']);
-			await expect(connection.tools[0]?.execute({})).resolves.toBe('Found.');
+			await expect(getPreparedToolAdapter(connection.tools[0]!)?.execute({})).resolves.toBe('Found.');
 			expect(
 				local.requests.some(
 					(request) => request.headers.get('mcp-session-id') === 'fixture-session',

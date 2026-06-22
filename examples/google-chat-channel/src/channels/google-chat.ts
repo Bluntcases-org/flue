@@ -1,5 +1,6 @@
 import { createGoogleChatChannel, type GoogleChatConversationRef } from '@flue/google-chat';
 import { defineTool, dispatch } from '@flue/runtime';
+import * as v from 'valibot';
 import assistant from '../agents/assistant.ts';
 import { createGoogleChatClient } from '../lib/google-chat-client.ts';
 
@@ -90,17 +91,10 @@ export function postMessage(ref: GoogleChatConversationRef) {
 	return defineTool({
 		name: 'post_google_chat_message',
 		description: 'Post a message to the Google Chat conversation bound to this agent.',
-		parameters: {
-			type: 'object',
-			properties: {
-				text: { type: 'string', minLength: 1 },
-			},
-			required: ['text'],
-			additionalProperties: false,
-		},
-		async execute({ text }) {
-			const message = await client.postMessage(ref, text);
-			return JSON.stringify({ message: message.name });
+		input: v.object({ text: v.pipe(v.string(), v.minLength(1)) }),
+		async run({ input }) {
+			const message = await client.postMessage(ref, input.text);
+			return { message: message.name };
 		},
 	});
 }

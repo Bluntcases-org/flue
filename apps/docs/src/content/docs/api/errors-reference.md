@@ -1,7 +1,7 @@
 ---
 title: Errors Reference
 description: Reference Flue transport errors, runtime failures, and development diagnostics.
-lastReviewedAt: 2026-05-31
+lastReviewedAt: 2026-06-21
 ---
 
 Flue exposes stable machine-readable error categories through its public transports. Runtime operations, workflow records, CLI commands, development servers, and builds also report failures, but not every surface uses the transport error vocabulary.
@@ -99,7 +99,10 @@ Harness and session operations, and runtime provider registration, reject with t
 | `DelegationDepthExceededError` | `delegation_depth_exceeded`  | Nested Task and Action delegation exceeds the supported depth.                                                                                                                                                                       |
 | `SubagentNotDeclaredError`  | `subagent_not_declared`         | `task()` names a subagent the agent does not declare.                                                                                                                                                                                |
 | `ToolNameConflictError`     | `tool_name_conflict`            | Custom or sandbox adapter tool names collide with each other or with framework-reserved names.                                                                                                                                       |
-| `ToolInputValidationError`  | `tool_input_validation`         | Model-supplied tool arguments fail the tool's valibot `parameters` schema. The agent loop converts the throw into an error tool result so the model can retry; `meta.issues` carries the failures in Standard Schema's issues shape. |
+| `ToolLegacyDefinitionError` | `tool_legacy_definition`        | A tool definition uses the removed `parameters` or `execute` fields. `meta.fields` lists the legacy fields found.                                                                                                                     |
+| `ToolInputValidationError`  | `tool_input_validation`         | Model-supplied tool arguments fail the tool's Valibot `input` schema. The agent loop converts the throw into an error tool result so the model can retry; `meta.tool` and `meta.issues` identify the tool and failures.          |
+| `ToolOutputValidationError` | `tool_output_validation`        | A tool's return value fails its Valibot `output` schema. `meta.tool` and `meta.issues` identify the tool and failures.                                                                                                                 |
+| `ToolOutputSerializationError` | `tool_output_serialization`  | A tool's parsed return value cannot be snapshotted as JSON-compatible data, or an output schema produces `undefined`. `meta.tool` identifies the tool.                                                                                 |
 | `OperationFailedError`      | `operation_failed`              | An operation ran but did not complete successfully (for example, the model call errored).                                                                                                                                            |
 | `SubmissionTimeoutError`    | `submission_timeout`            | A durable submission exceeded its configured processing timeout.                                                                                                                                                                     |
 | `ProviderRegistrationError` | `invalid_provider_registration` | `registerProvider()` targets a non-catalog provider id without `api` and `baseUrl`.                                                                                                                                                  |

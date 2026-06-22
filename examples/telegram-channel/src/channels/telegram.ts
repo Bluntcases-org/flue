@@ -2,6 +2,7 @@ import { defineTool, dispatch } from '@flue/runtime';
 import { createTelegramChannel, type TelegramConversationRef } from '@flue/telegram';
 import { Api } from 'grammy';
 import type { Message } from 'grammy/types';
+import * as v from 'valibot';
 import assistant from '../agents/assistant.ts';
 
 export const client = new Api(requiredEnv('TELEGRAM_BOT_TOKEN'));
@@ -67,16 +68,9 @@ export function postMessage(ref: TelegramConversationRef) {
 	return defineTool({
 		name: 'post_telegram_message',
 		description: 'Post a message to the Telegram conversation bound to this agent.',
-		parameters: {
-			type: 'object',
-			properties: {
-				text: { type: 'string', minLength: 1 },
-			},
-			required: ['text'],
-			additionalProperties: false,
-		},
-		async execute({ text }) {
-			const message = await client.sendMessage(ref.chatId, text, {
+		input: v.object({ text: v.pipe(v.string(), v.minLength(1)) }),
+		async run({ input }) {
+			const message = await client.sendMessage(ref.chatId, input.text, {
 				...(ref.type === 'business-chat'
 					? { business_connection_id: ref.businessConnectionId }
 					: {}),
@@ -85,7 +79,7 @@ export function postMessage(ref: TelegramConversationRef) {
 					? {}
 					: { direct_messages_topic_id: ref.directMessagesTopicId }),
 			});
-			return JSON.stringify({ messageId: message.message_id });
+			return { messageId: message.message_id };
 		},
 	});
 }

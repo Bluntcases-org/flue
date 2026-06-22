@@ -42,12 +42,12 @@ export default defineAgent(() => {
 			defineTool({
 				name: 'reply_to_chat_thread',
 				description: 'Post a response into the originating Chat SDK thread.',
-				parameters: v.object({
+				input: v.object({
 					threadId: v.string(),
 					text: v.string(),
 				}),
-				execute: async ({ threadId, text }) => {
-					await bot.thread(threadId).post(text);
+				async run({ input }) {
+					await bot.thread(input.threadId).post(input.text);
 					return 'Reply sent.';
 				},
 			}),

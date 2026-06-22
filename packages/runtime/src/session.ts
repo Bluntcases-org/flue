@@ -103,7 +103,8 @@ import {
 	isCompletedAssistantResponse,
 	isRetryableModelError,
 } from './submission-state.ts';
-import { normalizeToolDefinition } from './tool.ts';
+import { getPreparedToolAdapter } from './tool-adapter.ts';
+import { assertToolDefinition, validateAndRunTool } from './tool.ts';
 import type {
 	AgentConfig,
 	AgentProfile,
@@ -1191,21 +1192,35 @@ export class Session implements FlueSession, AgentSubmissionSession {
 	// ─── Custom Tools ───────────────────────────────────────────────────────
 
 	private createCustomTools(tools: ToolDefinition[]): AgentTool<any>[] {
-		return tools.map((rawToolDef): AgentTool<any> => {
-			// `defineTool()` already normalized its result; this catches inline
-			// tool literals whose valibot `parameters` never went through it.
-			const toolDef = normalizeToolDefinition(rawToolDef);
+		return tools.map((toolDef): AgentTool<any> => {
+			const preparedToolAdapter = getPreparedToolAdapter(toolDef);
+			if (!preparedToolAdapter) assertToolDefinition(toolDef, `Tool "${toolDef.name}"`);
 			return {
 				name: toolDef.name,
 				label: toolDef.name,
 				description: toolDef.description,
-				parameters: toolDef.parameters as any,
+				parameters: (preparedToolAdapter?.parameters ??
+					(toolDef.input
+						? valibotToJsonSchema(toolDef.input)
+						: { type: 'object', properties: {}, additionalProperties: false })) as any,
 				async execute(_toolCallId: string, params: unknown, signal?: AbortSignal) {
 					if (signal?.aborted) throw abortErrorFor(signal);
-					const resultText = await toolDef.execute(params as Record<string, any>, signal);
+					if (preparedToolAdapter) {
+						const text = await preparedToolAdapter.execute(
+							params as Record<string, unknown>,
+							signal,
+						);
+						return {
+							content: [{ type: 'text' as const, text }],
+							details: { customTool: toolDef.name },
+						};
+					}
+					const output = await validateAndRunTool(toolDef, params, signal);
 					return {
-						content: [{ type: 'text' as const, text: resultText }],
-						details: { customTool: toolDef.name },
+						content: [
+							{ type: 'text' as const, text: output === undefined ? 'null' : JSON.stringify(output) },
+						],
+						details: { customTool: toolDef.name, output },
 					};
 				},
 			};

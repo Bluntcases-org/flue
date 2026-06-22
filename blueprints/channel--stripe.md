@@ -83,18 +83,11 @@ export function retrieveCustomer(customerId: string) {
   return defineTool({
     name: 'retrieve_stripe_customer',
     description: 'Retrieve the Stripe customer bound to this billing agent.',
-    parameters: {
-      type: 'object',
-      properties: {},
-      additionalProperties: false,
-    },
-    async execute() {
+    async run() {
       const customer = await client.customers.retrieve(customerId);
-      return JSON.stringify(
-        'deleted' in customer
-          ? { id: customer.id, deleted: true }
-          : { id: customer.id, name: customer.name, email: customer.email },
-      );
+      return 'deleted' in customer
+        ? { id: customer.id, deleted: true }
+        : { id: customer.id, name: customer.name, email: customer.email };
     },
   });
 }

@@ -194,7 +194,7 @@ import {
   createSalesforceMarketingCloudChannel,
   type SalesforceMarketingCloudEvent,
 } from '@flue/salesforce';
-import { defineTool, dispatch } from '@flue/runtime';
+import { defineTool, dispatch, type JsonValue } from '@flue/runtime';
 import assistant from '../agents/assistant.ts';
 import { createSalesforceMarketingCloudClient } from '../salesforce-marketing-cloud-client.ts';
 import {
@@ -275,13 +275,8 @@ export function retrieveCallback(ref: SalesforceMarketingCloudEmailRef) {
   return defineTool({
     name: 'retrieve_salesforce_marketing_cloud_callback',
     description: 'Retrieve the Marketing Cloud ENS callback bound to this agent.',
-    parameters: {
-      type: 'object',
-      properties: {},
-      additionalProperties: false,
-    },
-    async execute() {
-      return JSON.stringify(await client.getCallback(callbackId));
+    async run() {
+      return (await client.getCallback(callbackId)) as unknown as JsonValue;
     },
   });
 }
